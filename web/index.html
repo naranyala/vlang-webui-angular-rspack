@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<title>Battery Monitor</title>
+	<script src="webui.js"></script>
+	<style>
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+			background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+			min-height: 100vh;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			color: #e4e4e4;
+		}
+		.container {
+			text-align: center;
+			padding: 30px;
+			background: rgba(255, 255, 255, 0.05);
+			border-radius: 20px;
+			box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+			min-width: 380px;
+		}
+		h1 { font-size: 1.5rem; margin-bottom: 25px; color: #fff; }
+		.battery-icon { font-size: 4rem; margin: 10px 0; }
+		.battery-percent {
+			font-size: 3.5rem;
+			font-weight: bold;
+			color: #4ade80;
+			text-shadow: 0 0 20px rgba(74, 222, 128, 0.5);
+		}
+		.battery-bar-container {
+			width: 180px;
+			height: 25px;
+			background: rgba(255, 255, 255, 0.1);
+			border-radius: 12px;
+			margin: 20px auto;
+			padding: 3px;
+		}
+		.battery-bar {
+			height: 100%;
+			background: linear-gradient(90deg, #4ade80, #22c55e);
+			border-radius: 10px;
+			transition: width 0.5s ease, background 0.3s ease;
+			box-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
+		}
+		.battery-bar.low {
+			background: linear-gradient(90deg, #f87171, #ef4444);
+			box-shadow: 0 0 10px rgba(248, 113, 113, 0.5);
+		}
+		.battery-bar.medium {
+			background: linear-gradient(90deg, #facc15, #eab308);
+			box-shadow: 0 0 10px rgba(250, 204, 21, 0.5);
+		}
+		.info {
+			margin-top: 20px;
+			padding: 15px;
+			background: rgba(255, 255, 255, 0.05);
+			border-radius: 10px;
+		}
+		.info-row {
+			display: flex;
+			justify-content: space-between;
+			padding: 8px 0;
+			border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+		}
+		.info-row:last-child { border-bottom: none; }
+		.info-label { color: #a0a0a0; font-size: 0.9rem; }
+		.info-value { color: #fff; font-weight: 600; }
+		.status-badge {
+			display: inline-block;
+			padding: 4px 12px;
+			border-radius: 15px;
+			font-size: 0.8rem;
+			font-weight: 600;
+			text-transform: uppercase;
+		}
+		.status-badge.charging { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+		.status-badge.discharging { background: rgba(250, 204, 21, 0.2); color: #facc15; }
+		.status-badge.full { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+		.refresh-btn {
+			margin-top: 20px;
+			padding: 10px 25px;
+			background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+			color: white;
+			border: none;
+			border-radius: 20px;
+			cursor: pointer;
+			transition: transform 0.2s;
+		}
+		.refresh-btn:hover { transform: translateY(-2px); }
+		.updated { margin-top: 12px; font-size: 0.75rem; color: #666; }
+	</style>
+</head>
+<body>
+	<div class="container">
+		<h1>🔋 Battery Monitor</h1>
+		<div class="battery-icon" id="icon">🔋</div>
+		<div class="battery-percent" id="percent">--%</div>
+		<div class="battery-bar-container">
+			<div class="battery-bar" id="bar" style="width: 0%"></div>
+		</div>
+		<div class="info">
+			<div class="info-row">
+				<span class="info-label">Status</span>
+				<span class="status-badge" id="status">--</span>
+			</div>
+			<div class="info-row">
+				<span class="info-label">Time Left</span>
+				<span class="info-value" id="time">--</span>
+			</div>
+		</div>
+		<button class="refresh-btn" onclick="refresh()">🔄 Refresh</button>
+		<div class="updated" id="updated">Last updated: --</div>
+	</div>
+
+	<script>
+		function update(data) {
+			document.getElementById('icon').textContent = data.icon;
+			document.getElementById('percent').textContent = data.percent + '%';
+			document.getElementById('percent').style.color = data.color;
+			const bar = document.getElementById('bar');
+			bar.style.width = data.percent + '%';
+			bar.className = 'battery-bar' + (data.percent < 30 ? ' low' : data.percent < 60 ? ' medium' : '');
+			document.getElementById('status').textContent = data.status;
+			document.getElementById('status').className = 'status-badge ' + data.status.toLowerCase();
+			document.getElementById('time').textContent = data.time_left;
+			document.getElementById('updated').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+		}
+
+		async function refresh() {
+			try {
+				const data = await webui.getBatteryInfo();
+				update(JSON.parse(data));
+			} catch (e) {
+				console.error('Error:', e);
+			}
+		}
+
+		// Initial load and auto-refresh every 10s
+		refresh();
+		setInterval(refresh, 10000);
+	</script>
+</body>
+</html>
