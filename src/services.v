@@ -1,45 +1,15 @@
 module services
 
-import time
 import json
+import os
 
-// Logger Service
-pub struct LoggerService {
-pub mut:
-	service_name string
-	min_level    string
-}
+// Note: Enhanced service implementations are in:
+// - core_services.v (ConfigService, CacheService, DatabaseService, HttpClientService)
+// - additional_services.v (LoggerService, ValidationService, MetricsService, HealthCheckService, AuthService)
+// - interfaces.v (Service interfaces: ILogger, IConfig, ICache, IDatabase, IHttpClient, etc.)
+// - registry.v (Fluent service registration API)
 
-pub fn new_logger_service() &LoggerService {
-	return &LoggerService{
-		service_name: 'logger'
-		min_level: 'info'
-	}
-}
-
-pub fn (s &LoggerService) log(level string, message string) {
-	t := time.now()
-	timestamp := '${t.hour:02}:${t.minute:02}:${t.second:02}'
-	println('[${timestamp}] [${level.to_upper()}] [${s.service_name}] ${message}')
-}
-
-pub fn (s &LoggerService) info(message string) {
-	if s.min_level == 'debug' || s.min_level == 'info' {
-		s.log('info', message)
-	}
-}
-
-pub fn (s &LoggerService) warn(message string) {
-	if s.min_level == 'debug' || s.min_level == 'info' || s.min_level == 'warn' {
-		s.log('warn', message)
-	}
-}
-
-pub fn (s &LoggerService) error(message string) {
-	s.log('error', message)
-}
-
-// System Info Service
+// System Info Service (Legacy - kept for backward compatibility)
 pub struct SystemInfoService {
 pub mut:
 	hostname    string
@@ -55,15 +25,50 @@ pub fn new_system_info_service() &SystemInfoService {
 		os_info: 'linux'
 		arch: 'x64'
 		cpu_count: '4'
-		initialized: true
+		initialized: false
 	}
 }
 
-pub fn (s &SystemInfoService) init() {
-	// Already initialized in constructor
+pub fn (mut s SystemInfoService) init() bool {
+	if s.initialized {
+		return true
+	}
+	
+	// Initialize with actual system info
+	s.hostname = os.uname().nodename
+	s.os_info = os.uname().sysname
+	s.arch = os.uname().machine
+	
+	// Get CPU count
+	cpuinfo := '/proc/cpuinfo'
+	mut cores := 0
+	if os.is_file(cpuinfo) {
+		content := os.read_file(cpuinfo) or { '' }
+		for line in content.split('\n') {
+			if line.starts_with('processor') {
+				cores++
+			}
+		}
+	}
+	s.cpu_count = if cores > 0 { '${cores}' } else { '1' }
+	
+	s.initialized = true
+	return true
 }
 
-pub fn (s &SystemInfoService) to_json() string {
+pub fn (mut s SystemInfoService) dispose() {
+	// No cleanup needed
+}
+
+pub fn (s SystemInfoService) name() string {
+	return 'system_info'
+}
+
+pub fn (s SystemInfoService) is_initialized() bool {
+	return s.initialized
+}
+
+pub fn (s SystemInfoService) to_json() string {
 	data := {
 		'hostname': s.hostname
 		'os': s.os_info
@@ -71,4 +76,20 @@ pub fn (s &SystemInfoService) to_json() string {
 		'cpu_count': s.cpu_count
 	}
 	return json.encode(data)
+}
+
+pub fn (s SystemInfoService) get_hostname() string {
+	return s.hostname
+}
+
+pub fn (s SystemInfoService) get_os_info() string {
+	return s.os_info
+}
+
+pub fn (s SystemInfoService) get_arch() string {
+	return s.arch
+}
+
+pub fn (s SystemInfoService) get_cpu_count() string {
+	return s.cpu_count
 }

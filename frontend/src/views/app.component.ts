@@ -192,6 +192,15 @@ export class AppComponent implements OnInit, OnDestroy {
     return this.windowEntries().filter(entry => entry.minimized).length;
   }
 
+  closeAllWindows(event?: Event): void {
+    if (event) {
+      event.stopPropagation();
+    }
+    this.logger.info('Closing all windows');
+    this.closeAllBoxes();
+    this.eventBus.publish('windows:all-closed', { timestamp: Date.now() });
+  }
+
   ngOnInit(): void {
     this.windowState.init();
     this.initWebSocketMonitor();
@@ -251,12 +260,62 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   closeAllBoxes(): void {
-    this.existingBoxes.forEach(box => {
-      if (box) box.close();
-    });
-    this.existingBoxes = [];
-    this.windowEntries.set([]);
-    this.windowIdByCardId.clear();
+    this.logger.info('Closing all WinBox windows', { count: this.existingBoxes.length });
+    
+    // Method 1: Use WinBox's built-in close method for each window
+    const boxesToClose = [...this.existingBoxes];
+    
+    for (const box of boxesToClose) {
+      if (box) {
+        try {
+          // Restore if minimized
+          if (box.min) {
+            box.restore();
+          }
+          // Focus and close
+          box.focus();
+          box.close(true);
+        } catch (error) {
+          this.logger.error('Error closing window via API', { id: box.__windowId, error });
+        }
+      }
+    }
+    
+    // Method 2: Direct DOM cleanup - remove all WinBox elements from DOM
+    // This ensures windows are actually removed even if close() didn't work
+    setTimeout(() => {
+      const winboxElements = document.querySelectorAll('.winbox');
+      this.logger.debug('Found WinBox DOM elements to remove', { count: winboxElements.length });
+      
+      winboxElements.forEach((el) => {
+        try {
+          el.remove();
+          this.logger.debug('Removed WinBox DOM element', { id: el.id });
+        } catch (error) {
+          this.logger.error('Error removing WinBox DOM element', { error });
+        }
+      });
+      
+      // Also remove any WinBox body elements that might remain
+      const winboxBodyElements = document.querySelectorAll('.winbox-body');
+      winboxBodyElements.forEach((el) => {
+        try {
+          el.remove();
+        } catch {
+          // Ignore errors
+        }
+      });
+      
+      // Clear all state
+      this.existingBoxes = [];
+      this.windowEntries.set([]);
+      this.windowIdByCardId.clear();
+      
+      this.logger.info('All windows closed and DOM cleaned up', { 
+        remainingBoxes: this.existingBoxes.length,
+        remainingEntries: this.windowEntries().length 
+      });
+    }, 50);
   }
 
   openCard(card: Card): void {
@@ -348,12 +407,31 @@ export class AppComponent implements OnInit, OnDestroy {
         this.windowState.sendStateChange(windowId, 'restored', card.title);
       };
       box.onclose = () => {
+        const windowId = box.__windowId;
+        this.logger.debug('WinBox onclose triggered', { id: windowId });
+        
+        // Remove from existingBoxes array
         const index = this.existingBoxes.indexOf(box);
-        if (index > -1) this.existingBoxes.splice(index, 1);
-        this.windowIdByCardId.delete(card.id);
-        this.eventBus.publish('window:closed', { id: windowId, title: card.title });
-        this.windowState.sendStateChange(windowId, 'closed', card.title);
+        if (index > -1) {
+          this.existingBoxes.splice(index, 1);
+          this.logger.debug('Removed from existingBoxes', { id: windowId, remainingCount: this.existingBoxes.length });
+        }
+        
+        // Delete from mapping
+        if (box.__cardId !== undefined) {
+          this.windowIdByCardId.delete(box.__cardId);
+        }
+        
+        // Publish event
+        this.eventBus.publish('window:closed', { id: windowId, title: box.__cardTitle });
+        
+        // Send state change
+        this.windowState.sendStateChange(windowId, 'closed', box.__cardTitle || 'Unknown');
+        
+        // Update window entries
         this.windowEntries.update(entries => entries.filter(entry => entry.id !== windowId));
+        
+        this.logger.debug('Window close cleanup complete', { id: windowId });
         return true;
       };
 

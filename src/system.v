@@ -3,9 +3,12 @@ module system
 import os
 import time
 
-// SystemInfo contains comprehensive system information
+// ============================================================================
+// Data Structures
+// ============================================================================
+
 pub struct SystemInfo {
-mut:
+pub mut:
 	hostname       string
 	os_name        string
 	os_version     string
@@ -21,9 +24,8 @@ mut:
 	boot_time      u64
 }
 
-// MemoryInfo contains memory statistics
 pub struct MemoryInfo {
-mut:
+pub mut:
 	total     u64
 	used      u64
 	free      u64
@@ -33,9 +35,8 @@ mut:
 	cached    u64
 }
 
-// CPUInfo contains CPU statistics
 pub struct CPUInfo {
-mut:
+pub mut:
 	model       string
 	cores       int
 	logical     int
@@ -46,9 +47,8 @@ mut:
 	load_avg_15 f64
 }
 
-// DiskInfo contains disk/partition statistics
 pub struct DiskInfo {
-mut:
+pub mut:
 	device       string
 	mountpoint   string
 	fstype       string
@@ -61,17 +61,10 @@ mut:
 	inodes_free  u64
 }
 
-// DiskIOInfo contains disk I/O statistics
-pub struct DiskIOInfo {
-	read_count  u64
-	write_count u64
-	read_bytes  u64
-	write_bytes u64
-	read_time   u64
-	write_time  u64
-}
+// ============================================================================
+// System Info Functions
+// ============================================================================
 
-// GetSystemInfo returns comprehensive system information
 pub fn get_system_info() SystemInfo {
 	mut info := SystemInfo{
 		hostname: get_hostname()
@@ -83,69 +76,68 @@ pub fn get_system_info() SystemInfo {
 		uptime: get_uptime()
 		boot_time: get_boot_time()
 	}
-
+	
 	memory := get_memory_info()
 	info.memory_total = memory.total
 	info.memory_used = memory.used
 	info.memory_free = memory.free
 	info.memory_percent = memory.percent
-
+	
 	cpu := get_cpu_info()
 	info.cpu_usage = cpu.usage
-
+	
 	return info
 }
 
-// GetMemoryInfo returns memory statistics
 pub fn get_memory_info() MemoryInfo {
 	mut mem := MemoryInfo{}
-
-	// Try to read from /proc/meminfo
+	
 	meminfo_path := '/proc/meminfo'
-	if os.is_file(meminfo_path) {
-		content := os.read_file(meminfo_path) or { return mem }
-		lines := content.split('\n')
-
-		for line in lines {
-			parts := line.split(':')
-			if parts.len < 2 {
-				continue
-			}
-			key := parts[0].trim_space()
-			value_parts := parts[1].trim_space().split(' ')
-			value_kb := value_parts[0].u64()
-			value_bytes := value_kb * 1024
-
-			match key {
-				'MemTotal' { mem.total = value_bytes }
-				'MemFree' { mem.free = value_bytes }
-				'MemAvailable' { mem.available = value_bytes }
-				'Buffers' { mem.buffers = value_bytes }
-				'Cached' { mem.cached = value_bytes }
-				else {}
-			}
+	if !os.is_file(meminfo_path) {
+		return mem
+	}
+	
+	content := os.read_file(meminfo_path) or { return mem }
+	lines := content.split('\n')
+	
+	for line in lines {
+		parts := line.split(':')
+		if parts.len < 2 {
+			continue
 		}
-
-		mem.used = mem.total - mem.free - mem.buffers - mem.cached
-		if mem.total > 0 {
-			mem.percent = f64(mem.used) / f64(mem.total) * 100.0
+		key := parts[0].trim_space()
+		value_parts := parts[1].trim_space().split(' ')
+		value_kb := value_parts[0].u64()
+		value_bytes := value_kb * 1024
+		
+		match key {
+			'MemTotal' { mem.total = value_bytes }
+			'MemFree' { mem.free = value_bytes }
+			'MemAvailable' { mem.available = value_bytes }
+			'Buffers' { mem.buffers = value_bytes }
+			'Cached' { mem.cached = value_bytes }
+			else {}
 		}
 	}
-
+	
+	if mem.total > 0 {
+		mem.used = mem.total - mem.free - mem.buffers - mem.cached
+		mem.percent = f64(mem.used) / f64(mem.total) * 100.0
+	}
+	
 	return mem
 }
 
-// GetCPUInfo returns CPU statistics
 pub fn get_cpu_info() CPUInfo {
 	mut cpu := CPUInfo{
 		cores: get_cpu_cores()
 		logical: get_cpu_cores()
 		model: get_cpu_model()
 	}
-
-	// Read load averages
-	if os.is_file('/proc/loadavg') {
-		content := os.read_file('/proc/loadavg') or { '' }
+	
+	loadavg_path := '/proc/loadavg'
+	if os.is_file(loadavg_path) {
+		content := os.read_file(loadavg_path) or { '' }
 		parts := content.trim_space().split(' ')
 		if parts.len >= 3 {
 			cpu.load_avg_1 = parts[0].f64()
@@ -153,170 +145,176 @@ pub fn get_cpu_info() CPUInfo {
 			cpu.load_avg_15 = parts[2].f64()
 		}
 	}
-
-	// Estimate CPU usage from load average
+	
 	if cpu.cores > 0 {
 		cpu.usage = (cpu.load_avg_1 / f64(cpu.cores)) * 100.0
 		if cpu.usage > 100.0 {
 			cpu.usage = 100.0
 		}
 	}
-
+	
 	return cpu
 }
 
-// GetDiskUsage returns disk usage for a given path
 pub fn get_disk_usage(path string) DiskInfo {
 	mut disk := DiskInfo{
 		mountpoint: path
 	}
-
-	// Use df command to get disk info
+	
+	if !os.exists(path) {
+		return disk
+	}
+	
 	cmd := 'df -B1 "${path}" 2>/dev/null | tail -1'
 	result := os.execute(cmd)
 	if result.exit_code != 0 {
 		return disk
 	}
-
+	
 	output := result.output.trim_space()
 	if output.len == 0 {
 		return disk
 	}
-
-	// Parse df output: Filesystem 1B-blocks Used Available Use% Mounted
+	
 	parts := output.split(' ').filter(it.len > 0)
 	if parts.len >= 5 {
-		// parts[0] = filesystem, parts[1] = total, parts[2] = used, parts[3] = available, parts[4] = use%
 		disk.total = parts[1].u64()
 		disk.used = parts[2].u64()
 		disk.free = parts[3].u64()
-		
 		use_percent := parts[4].replace('%', '')
 		disk.percent = use_percent.f64()
 	}
-
+	
 	return disk
 }
 
-// GetAllDiskInfo returns information about all mounted filesystems
 pub fn get_all_disk_info() []DiskInfo {
 	mut disks := []DiskInfo{}
-
-	// Read /proc/mounts
+	
 	mounts_path := '/proc/mounts'
 	if !os.is_file(mounts_path) {
 		return disks
 	}
-
+	
 	content := os.read_file(mounts_path) or { return disks }
 	lines := content.split('\n')
-
+	
 	for line in lines {
-		if line.trim_space().len == 0 {
+		trimmed := line.trim_space()
+		if trimmed.len == 0 {
 			continue
 		}
-		parts := line.split(' ')
+		parts := trimmed.split(' ')
 		if parts.len < 4 {
 			continue
 		}
-
+		
 		device := parts[0]
 		mountpoint := parts[1]
 		fstype := parts[2]
-
-		// Skip pseudo filesystems
-		if device.starts_with('none') || device.starts_with('tmpfs') || 
+		
+		if device.starts_with('none') || device.starts_with('tmpfs') ||
 		   device.starts_with('devtmpfs') || mountpoint.starts_with('/sys') ||
 		   mountpoint.starts_with('/proc') || mountpoint.starts_with('/run') {
 			continue
 		}
-
+		
 		mut disk := get_disk_usage(mountpoint)
 		disk.device = device
 		disk.fstype = fstype
 		disks << disk
 	}
-
+	
 	return disks
 }
 
-// Helper functions
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
-fn get_hostname() string {
-	return os.uname().nodename
+pub fn get_hostname() string {
+	hostname := os.uname().nodename
+	return if hostname.len > 0 { hostname } else { 'unknown' }
 }
 
-fn get_os_name() string {
-	// Try to read from /etc/os-release
+pub fn get_os_name() string {
 	os_release := '/etc/os-release'
-	if os.is_file(os_release) {
-		content := os.read_file(os_release) or { return 'Linux' }
-		for line in content.split('\n') {
-			if line.starts_with('PRETTY_NAME=') {
-				mut result := line
-				result = result.replace('PRETTY_NAME=', '')
-				result = result.replace('"', '')
-				return result
-			}
+	if !os.is_file(os_release) {
+		return 'Linux'
+	}
+	
+	content := os.read_file(os_release) or { return 'Linux' }
+	for line in content.split('\n') {
+		if line.starts_with('PRETTY_NAME=') {
+			mut result := line
+			result = result.replace('PRETTY_NAME=', '')
+			result = result.replace('"', '')
+			return if result.len > 0 { result } else { 'Linux' }
 		}
 	}
 	return 'Linux'
 }
 
-fn get_os_version() string {
-	return os.uname().release
+pub fn get_os_version() string {
+	release := os.uname().release
+	return if release.len > 0 { release } else { 'unknown' }
 }
 
-fn get_arch() string {
-	return os.uname().machine
+pub fn get_arch() string {
+	arch := os.uname().machine
+	return if arch.len > 0 { arch } else { 'unknown' }
 }
 
-fn get_cpu_model() string {
+pub fn get_cpu_model() string {
 	cpuinfo := '/proc/cpuinfo'
-	if os.is_file(cpuinfo) {
-		content := os.read_file(cpuinfo) or { return 'Unknown' }
-		for line in content.split('\n') {
-			if line.starts_with('model name') {
-				parts := line.split(':')
-				if parts.len > 1 {
-					return parts[1].trim_space()
-				}
+	if !os.is_file(cpuinfo) {
+		return 'Unknown'
+	}
+	
+	content := os.read_file(cpuinfo) or { return 'Unknown' }
+	for line in content.split('\n') {
+		if line.starts_with('model name') {
+			parts := line.split(':')
+			if parts.len > 1 {
+				model := parts[1].trim_space()
+				return if model.len > 0 { model } else { 'Unknown' }
 			}
 		}
 	}
 	return 'Unknown'
 }
 
-fn get_cpu_cores() int {
+pub fn get_cpu_cores() int {
 	cpuinfo := '/proc/cpuinfo'
-	if os.is_file(cpuinfo) {
-		content := os.read_file(cpuinfo) or { return 1 }
-		mut cores := 0
-		for line in content.split('\n') {
-			if line.starts_with('processor') {
-				cores++
-			}
-		}
-		if cores > 0 {
-			return cores
+	if !os.is_file(cpuinfo) {
+		return 1
+	}
+	
+	content := os.read_file(cpuinfo) or { return 1 }
+	mut cores := 0
+	for line in content.split('\n') {
+		if line.starts_with('processor') {
+			cores++
 		}
 	}
-	return 1
+	return if cores > 0 { cores } else { 1 }
 }
 
-fn get_uptime() u64 {
+pub fn get_uptime() u64 {
 	uptime_path := '/proc/uptime'
-	if os.is_file(uptime_path) {
-		content := os.read_file(uptime_path) or { return 0 }
-		parts := content.split('.')
-		if parts.len > 0 {
-			return parts[0].u64()
-		}
+	if !os.is_file(uptime_path) {
+		return 0
+	}
+	
+	content := os.read_file(uptime_path) or { return 0 }
+	parts := content.split('.')
+	if parts.len > 0 {
+		return parts[0].u64()
 	}
 	return 0
 }
 
-fn get_boot_time() u64 {
+pub fn get_boot_time() u64 {
 	uptime := get_uptime()
 	if uptime > 0 {
 		diff := time.now().unix() - i64(uptime)
@@ -327,7 +325,10 @@ fn get_boot_time() u64 {
 	return 0
 }
 
-// Format bytes to human readable string
+// ============================================================================
+// Formatting Functions
+// ============================================================================
+
 pub fn format_bytes(bytes u64) string {
 	if bytes < 1024 {
 		return '${bytes} B'
@@ -342,12 +343,11 @@ pub fn format_bytes(bytes u64) string {
 	}
 }
 
-// Format uptime to human readable string
 pub fn format_uptime(seconds u64) string {
 	days := seconds / 86400
 	hours := (seconds % 86400) / 3600
 	mins := (seconds % 3600) / 60
-
+	
 	if days > 0 {
 		return '${days}d ${hours}h ${mins}m'
 	} else if hours > 0 {

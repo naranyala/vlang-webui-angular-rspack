@@ -86,8 +86,7 @@ build_frontend() {
     done
     
     log_frontend "Building with Rspack..."
-    # Enable verbose output from rspack
-    RSPACK_VERBOSE=1 bun run build:rspack 2>&1 | while read line; do
+    bun run build:rspack 2>&1 | while read line; do
         echo -e "${CYAN}[RSPACK]${NC} $line"
     done
     

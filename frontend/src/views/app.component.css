@@ -84,22 +84,41 @@
   font-size: 11px;
 }
 
-.top-bar__stat {
+.top-bar__close-all {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  transition: background 0.2s;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
 }
 
-.top-bar__stat:hover {
-  background: rgba(255, 255, 255, 0.15);
+.top-bar__close-all:hover {
+  background: rgba(239, 68, 68, 0.35);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
 
-.top-bar__stat-icon {
+.top-bar__close-all:active {
+  transform: translateY(0);
+}
+
+.top-bar__close-all__icon {
   font-size: 12px;
+  font-weight: bold;
+}
+
+.top-bar__close-all__label {
+  font-size: 11px;
 }
 
 .top-bar__toggle {

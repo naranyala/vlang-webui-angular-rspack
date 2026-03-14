@@ -9,14 +9,10 @@
         </span>
       </div>
       <div class="top-bar__right">
-        <span class="top-bar__stat">
-          <span class="top-bar__stat-icon">◼</span>
-          {{ windowEntries()?.length || 0 }}
-        </span>
-        <span class="top-bar__stat">
-          <span class="top-bar__stat-icon">◻</span>
-          {{ minimizedWindowCount() || 0 }}
-        </span>
+        <button type="button" class="top-bar__close-all" (click)="closeAllWindows($event)" title="Close all windows">
+          <span class="top-bar__close-all__icon">✕</span>
+          <span class="top-bar__close-all__label">Close All</span>
+        </button>
       </div>
       <span class="top-bar__toggle">
         {{ topCollapsed() ? '▼' : '▲' }}
