@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { getLogger } from '../viewmodels/logger.viewmodel';
+import { LoggerService } from './logger.service';
 
 export interface WinBoxOptions {
   id?: string;
@@ -82,7 +82,7 @@ export interface WinBoxInstance {
   providedIn: 'root',
 })
 export class WinBoxService {
-  private readonly logger = getLogger('winbox.service');
+  private readonly logger = new LoggerService();
   private winboxConstructor: any = null;
 
   constructor() {

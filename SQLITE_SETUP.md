@@ -1,6 +1,6 @@
 # SQLite Persistent Storage Setup
 
-## ✅ Default: JSON File Storage (No Installation Required)
+## [DONE] Default: JSON File Storage (No Installation Required)
 
 The application now uses **JSON file-based persistence** by default. No SQLite installation needed!
 

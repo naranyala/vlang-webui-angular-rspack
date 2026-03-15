@@ -1,0 +1,205 @@
+# ==============================================================================
+# CI/CD Pipeline for Desktop Dashboard
+# ==============================================================================
+# This workflow handles:
+# - Linting
+# - Testing
+# - Building
+# - Artifact generation
+# ==============================================================================
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Cancel redundant workflows
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  BUN_VERSION: '1'
+  V_VERSION: '0.5.1'
+
+jobs:
+  # ============================================================================
+  # Lint Job
+  # ============================================================================
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+
+      - name: Run Biome lint
+        run: |
+          cd frontend
+          bun run lint:ci
+
+      - name: Check formatting
+        run: |
+          cd frontend
+          bun run format
+
+  # ============================================================================
+  # Test Job
+  # ============================================================================
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: lint
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup V
+        uses: vlang/setup-v@v2
+        with:
+          v-version: ${{ env.V_VERSION }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+
+      - name: Run backend tests
+        run: |
+          v test src/ -test-file '*_test.v'
+
+      - name: Run frontend tests
+        run: |
+          cd frontend
+          bun test --coverage
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./frontend/coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+
+  # ============================================================================
+  # Build Job
+  # ============================================================================
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup V
+        uses: vlang/setup-v@v2
+        with:
+          v-version: ${{ env.V_VERSION }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Setup GCC
+        uses: egor-tensin/setup-gcc@v1
+        with:
+          version: latest
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+
+      - name: Build application
+        run: |
+          ./run.sh build
+
+      - name: Verify build
+        run: |
+          test -f desktop-dashboard
+          test -f frontend/dist/browser/index.html
+          test -f frontend/dist/browser/*.js
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-dashboard-linux
+          path: desktop-dashboard
+          retention-days: 30
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/browser
+          retention-days: 30
+
+  # ============================================================================
+  # Release Job (on tags only)
+  # ============================================================================
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-dashboard-linux
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/browser
+
+      - name: Create release archive
+        run: |
+          tar -czvf desktop-dashboard-${{ github.ref_name }}-linux.tar.gz \
+            desktop-dashboard \
+            frontend/dist/browser \
+            README.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: desktop-dashboard-${{ github.ref_name }}-linux.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: false

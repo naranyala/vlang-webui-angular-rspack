@@ -1,143 +1,55 @@
-// Notification service for toast notifications
-import { Injectable, signal, computed } from '@angular/core';
-import { getLogger } from '../viewmodels/logger.viewmodel';
-
-export type NotificationType = 'info' | 'success' | 'warning' | 'error';
+// Simple notification service
+import { Injectable, signal } from '@angular/core';
 
 export interface Notification {
   id: string;
-  type: NotificationType;
-  title: string;
+  type: 'success' | 'error' | 'info' | 'warning';
   message: string;
   duration?: number;
-  createdAt: number;
-  dismissible: boolean;
 }
-
-export interface NotificationOptions {
-  type?: NotificationType;
-  duration?: number;
-  dismissible?: boolean;
-  action?: {
-    label: string;
-    onClick: () => void;
-  };
-}
-
-const DEFAULT_DURATION = 5000;
 
 @Injectable({ providedIn: 'root' })
 export class NotificationService {
-  private readonly logger = getLogger('notification.service');
-
   private readonly notifications = signal<Notification[]>([]);
-  private readonly maxNotifications = 5;
 
-  readonly items = computed(() => this.notifications());
-  readonly count = computed(() => this.notifications().length);
+  readonly items = this.notifications;
 
-  /**
-   * Show an info notification
-   */
-  info(title: string, message: string, options?: NotificationOptions): string {
-    return this.show(title, message, { ...options, type: 'info' });
-  }
-
-  /**
-   * Show a success notification
-   */
-  success(title: string, message: string, options?: NotificationOptions): string {
-    return this.show(title, message, { ...options, type: 'success' });
-  }
-
-  /**
-   * Show a warning notification
-   */
-  warning(title: string, message: string, options?: NotificationOptions): string {
-    return this.show(title, message, { ...options, type: 'warning' });
-  }
-
-  /**
-   * Show an error notification
-   */
-  error(title: string, message: string, options?: NotificationOptions): string {
-    return this.show(title, message, { ...options, type: 'error' });
-  }
-
-  /**
-   * Show a notification
-   */
-  show(title: string, message: string, options: NotificationOptions = {}): string {
-    const id = this.generateId();
+  show(message: string, type: Notification['type'] = 'info', duration = 3000): void {
     const notification: Notification = {
-      id,
-      type: options.type ?? 'info',
-      title,
+      id: Math.random().toString(36).slice(2),
+      type,
       message,
-      duration: options.duration ?? DEFAULT_DURATION,
-      dismissible: options.dismissible ?? true,
-      createdAt: Date.now(),
+      duration,
     };
 
-    this.notifications.update(notifications => {
-      const updated = [...notifications, notification];
-      // Remove oldest if exceeding max
-      if (updated.length > this.maxNotifications) {
-        updated.shift();
-      }
-      return updated;
-    });
+    this.notifications.update(items => [...items, notification]);
 
-    this.logger.debug('Notification shown', { id, type: notification.type, title });
-
-    // Auto-dismiss after duration
-    if (notification.duration && notification.duration > 0) {
-      setTimeout(() => this.dismiss(id), notification.duration);
+    if (duration > 0) {
+      setTimeout(() => this.dismiss(notification.id), duration);
     }
-
-    return id;
   }
 
-  /**
-   * Dismiss a notification
-   */
+  success(message: string, duration = 3000): void {
+    this.show(message, 'success', duration);
+  }
+
+  error(message: string, duration = 5000): void {
+    this.show(message, 'error', duration);
+  }
+
+  info(message: string, duration = 3000): void {
+    this.show(message, 'info', duration);
+  }
+
+  warning(message: string, duration = 4000): void {
+    this.show(message, 'warning', duration);
+  }
+
   dismiss(id: string): void {
-    const notification = this.notifications().find(n => n.id === id);
-    if (notification) {
-      this.notifications.update(notifications =>
-        notifications.filter(n => n.id !== id)
-      );
-      this.logger.debug('Notification dismissed', { id });
-    }
+    this.notifications.update(items => items.filter(n => n.id !== id));
   }
 
-  /**
-   * Dismiss all notifications
-   */
-  dismissAll(): void {
+  clear(): void {
     this.notifications.set([]);
-    this.logger.debug('All notifications dismissed');
-  }
-
-  /**
-   * Update a notification
-   */
-  update(id: string, updates: Partial<Pick<Notification, 'title' | 'message' | 'duration'>>): void {
-    this.notifications.update(notifications =>
-      notifications.map(n =>
-        n.id === id ? { ...n, ...updates } : n
-      )
-    );
-  }
-
-  /**
-   * Get notification by ID
-   */
-  get(id: string): Notification | undefined {
-    return this.notifications().find(n => n.id === id);
-  }
-
-  private generateId(): string {
-    return `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 }

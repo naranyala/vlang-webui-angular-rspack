@@ -10,541 +10,448 @@ Comprehensive guide to dependency injection systems in both backend (V) and fron
 4. [Service Catalog](#service-catalog)
 5. [Best Practices](#best-practices)
 
+---
+
 ## Overview
 
-This project implements dependency injection on both tiers:
+This project implements dependency injection on both tiers using different approaches:
 
 | Aspect | Backend (V) | Frontend (Angular) |
 |--------|-------------|-------------------|
-| Container | Custom DI Container | Angular Built-in |
-| Registration | Manual with registry | `providedIn: 'root'` |
-| Lifecycles | Singleton, Transient, Scoped | Singleton (default) |
-| Resolution | `resolve()` method | Constructor injection |
-| Interfaces | Explicit interfaces | TypeScript interfaces |
+| Pattern | Direct Composition | Angular Built-in DI |
+| Registration | Direct instantiation | providedIn: 'root' |
+| Lifecycles | Manual management | Singleton (default) |
+| Resolution | Direct variable access | Constructor injection |
+| Interfaces | Struct definitions | TypeScript interfaces |
+
+---
 
 ## Backend DI System
 
-### Container Basics
+### Direct Composition Pattern
+
+The backend uses direct composition instead of a DI container. Services are created in main() and passed to components that need them.
+
+### Service Creation
 
 ```v
-import di
-import services as svc
+fn main() {
+    // Create services directly
+    config := new_config_service()
+    config.init()
 
-// Create container
-mut container := di.new_container()
+    logger := new_logger_service()
+    logger.init()
 
-// Create registry for fluent API
-mut registry := svc.new_service_registry(&container)
+    cache := new_cache_service()
+    cache.init()
+
+    validation := new_validation_service()
+    validation.init()
+
+    db := new_sqlite_service('users.db') or {
+        println('Failed to initialize database')
+        return
+    }
+}
 ```
 
-### Service Lifecycles
-
-#### Singleton
-Single instance for application lifetime:
+### Service Passing to Handlers
 
 ```v
-container.register_singleton('logger', logger_instance)
+// Pass services to handlers
+window_mgr.bind('getUsers', fn [db] (e &ui.Event) string {
+    users := db.get_all_users()
+    return '{"success":true,"data":${json.encode(users)}}'
+})
 
-// Or with factory
-container.register_singleton_fn('config', fn () voidptr {
-    mut service := new_config_service()
-    service.init()
-    return service
+window_mgr.bind('createUser', fn [mut db] (e &ui.Event) string {
+    user_result := db.create_user('Name', 'email@test.com', 25) or {
+        return '{"success":false,"error":"${err.msg}"}'
+    }
+    return '{"success":true,"data":${json.encode(user_result)}}'
 })
 ```
 
-#### Transient
-New instance each resolution:
+### Service Lifecycle Management
 
 ```v
-container.register_transient('request_handler', fn () voidptr {
-    return new_request_handler()
+// Setup graceful shutdown
+mut lifecycle := window_manager.new_app_lifecycle()
+lifecycle.init(mut window_mgr) or {
+    return
+}
+
+// Register cleanup handlers
+lifecycle.on_shutdown(fn [db, cache] () {
+    println('Cleaning up services...')
+    db.dispose()
+    cache.dispose()
 })
 ```
 
-#### Scoped
-One instance per scope (request/session):
-
-```v
-container.register_scoped('session', fn () voidptr {
-    return new_session_service()
-})
-
-// Create and use scope
-container.create_scope('request_1')
-container.use_scope('request_1')
-// ... use scoped services ...
-container.dispose_scope('request_1')
-```
-
-### Service Registry
-
-Fluent API for registration:
-
-```v
-// Register all core services
-registry.register_all_core_services()
-
-// Register individually
-registry.register_config_service('/path/to/config')
-registry.register_logger_service('info')
-registry.register_cache_service(1000)
-registry.register_validation_service()
-registry.register_metrics_service()
-registry.register_health_check_service()
-registry.register_auth_service(3600)  // 1 hour token expiry
-registry.register_system_info_service()
-
-// Register additional services
-registry.register_http_client_service('https://api.example.com', 30000)
-registry.register_database_service('sqlite:///app.db')
-```
-
-### Service Resolution
-
-```v
-// Type-safe resolution helpers
-logger := registry.get_logger() or {
-    panic('Logger not available')
-}
-
-cache := registry.get_cache() or {
-    panic('Cache not available')
-}
-
-config := registry.get_config() or {
-    panic('Config not available')
-}
-
-// Generic resolution
-service := container.resolve('my_service') or {
-    panic('Service not found')
-}
-unsafe {
-    my_service := &MyService(service)
-    my_service.do_something()
-}
-```
-
-### Service Interfaces
-
-All services implement `IService`:
-
-```v
-pub interface IService {
-    mut:
-        init() bool
-        dispose()
-        name() string
-        is_initialized() bool
-}
-```
-
-Additional interfaces for specific capabilities:
-
-```v
-pub interface ILogger {
-    mut:
-        debug(message string)
-        info(message string)
-        warn(message string)
-        error(message string)
-        fatal(message string)
-}
-
-pub interface IConfig {
-    mut:
-        get(key string) ?string
-        get_string(key string, default string) string
-        get_int(key string, default int) int
-        get_bool(key string, default bool) bool
-        set(key string, value string)
-        has(key string) bool
-}
-
-pub interface ICache {
-    mut:
-        get(key string) ?string
-        set(key string, value string, ttl_seconds int) bool
-        delete(key string) bool
-        has(key string) bool
-        clear()
-}
-```
+---
 
 ## Frontend DI System
 
-### Angular DI
+### Angular Built-in DI
 
-Services use `@Injectable({ providedIn: 'root' })`:
+The frontend uses Angular's built-in dependency injection with providedIn: 'root' for singleton services.
+
+### Service Definition
+
+```typescript
+import { Injectable, signal, computed } from '@angular/core';
+
+@Injectable({ providedIn: 'root' })
+export class ApiService {
+  private readonly defaultTimeout = 30000;
+  
+  // Internal state signals
+  private readonly loading = signal(false);
+  private readonly error = signal<string | null>(null);
+  
+  // Public readonly signals
+  readonly isLoading = this.loading.asReadonly();
+  readonly error$ = this.error.asReadonly();
+  
+  // Computed signals
+  readonly hasError = computed(() => this.error() !== null);
+  readonly isReady = computed(() => !this.loading() && this.error() === null);
+  
+  async call<T>(functionName: string, args: unknown[] = []): Promise<T> {
+    this.loading.set(true);
+    this.error.set(null);
+    // ... implementation
+  }
+}
+```
+
+### Service Injection
+
+```typescript
+import { Component, inject } from '@angular/core';
+import { ApiService } from './core/api.service';
+import { LoggerService } from './core/logger.service';
+import { NotificationService } from './core/notification.service';
+
+@Component({
+  selector: 'app-example',
+  template: `...`,
+})
+export class ExampleComponent {
+  // Using inject() function
+  private readonly api = inject(ApiService);
+  private readonly logger = inject(LoggerService);
+  private readonly notifications = inject(NotificationService);
+  
+  async loadData() {
+    try {
+      const data = await this.api.callOrThrow('getData');
+      this.logger.info('Data loaded', data);
+    } catch (error) {
+      this.notifications.error('Failed to load data');
+    }
+  }
+}
+```
+
+### Signal-Based Services
 
 ```typescript
 @Injectable({ providedIn: 'root' })
 export class StorageService {
-  constructor() {}
+  private readonly prefix = 'app:';
+  private readonly memoryStore = new Map<string, StorageEntry<unknown>>();
   
-  get<T>(key: string): T | null {
+  // Signal-based state tracking
+  private readonly keys = signal<Set<string>>(new Set());
+  private readonly stats = signal<StorageStats>({
+    count: 0,
+    memoryCount: 0,
+    localStorageCount: 0,
+  });
+  
+  // Public readonly signals
+  readonly allKeys = this.keys.asReadonly();
+  readonly storageStats = this.stats.asReadonly();
+  
+  // Computed signals
+  readonly count = computed(() => this.stats().count);
+  readonly hasItems = computed(() => this.stats().count > 0);
+  readonly isEmpty = computed(() => this.stats().count === 0);
+  
+  get<T>(key: string, defaultValue?: T): T | null {
+    // Implementation
+  }
+  
+  set<T>(key: string, value: T, options?: { ttl?: number }): void {
     // Implementation
   }
 }
 ```
 
-### Service Facade
-
-Unified access via `AppServices`:
-
-```typescript
-import { AppServices } from './core/app-services.facade';
-
-@Component({...})
-export class MyComponent {
-  constructor(private services: AppServices) {}
-  
-  ngOnInit() {
-    // All services available through single injection
-    this.services.logger.info('Hello');
-    this.services.storage.set('key', 'value');
-    this.services.notifications.success('Done!');
-  }
-}
-```
-
-### Individual Service Injection
-
-```typescript
-@Component({...})
-export class MyComponent {
-  constructor(
-    private storage: StorageService,
-    private http: HttpService,
-    private notifications: NotificationService,
-    private loading: LoadingService,
-    private theme: ThemeService,
-    private clipboard: ClipboardService,
-  ) {}
-}
-```
+---
 
 ## Service Catalog
 
 ### Backend Services
 
-| Service | File | Interface | Description |
-|---------|------|-----------|-------------|
-| **ConfigService** | `core_services.v` | `IConfig` | Environment and file configuration |
-| **CacheService** | `core_services.v` | `ICache` | In-memory caching with TTL |
-| **DatabaseService** | `core_services.v` | `IDatabase` | SQLite wrapper |
-| **HttpClientService** | `core_services.v` | `IHttpClient` | HTTP client wrapper |
-| **LoggerService** | `additional_services.v` | `ILogger` | Structured logging with levels |
-| **ValidationService** | `additional_services.v` | `IValidationService` | Input validation with rules |
-| **MetricsService** | `additional_services.v` | `IMetricsService` | Application metrics |
-| **HealthCheckService** | `additional_services.v` | `IHealthCheck` | Health monitoring |
-| **AuthService** | `additional_services.v` | `IAuthService` | Token-based authentication |
-| **SystemInfoService** | `services.v` | `IService` | System information |
+#### ConfigService
 
-### Frontend Services
-
-| Service | File | Description |
-|---------|------|-------------|
-| **StorageService** | `storage.service.ts` | LocalStorage/SessionStorage with TTL |
-| **HttpService** | `http.service.ts` | HTTP client with caching and retry |
-| **NotificationService** | `notification.service.ts` | Toast notifications |
-| **LoadingService** | `loading.service.ts` | Loading spinner management |
-| **ThemeService** | `theme.service.ts` | Dark/light theme switching |
-| **ClipboardService** | `clipboard.service.ts` | Clipboard operations |
-| **RetryService** | `retry.service.ts` | Retry with exponential backoff |
-| **NetworkMonitorService** | `network-monitor.service.ts` | Network connectivity |
-| **ErrorRecoveryService** | `error-recovery.service.ts` | Error recovery |
-| **ErrorTelemetryService** | `error-telemetry.service.ts` | Error tracking |
-| **GlobalErrorService** | `global-error.service.ts` | Global error state |
-| **WinBoxService** | `winbox.service.ts` | WinBox window management |
-
-## Usage Examples
-
-### Backend - ConfigService
+Manages application configuration.
 
 ```v
-config := registry.get_config() or { return }
+config := new_config_service()
 config.init()
-config.load_from_env()
-config.load_from_file('.env')
 
-app_name := config.get_string('app_name', 'Default')
-port := config.get_int('port', 8080)
-debug := config.get_bool('debug', false)
+// Get values
+value := config.get_string('key', 'default')
+int_val := config.get_int('number', 0)
+bool_val := config.get_bool('flag', false)
+
+// Set values
+config.set('key', 'value')
 ```
 
-### Backend - CacheService
+**File:** src/services.v
+**Lifecycle:** Application lifetime
+**Dependencies:** None
+
+#### LoggerService
+
+Provides structured logging.
 
 ```v
-cache := registry.get_cache() or { return }
+logger := new_logger_service()
+logger.init()
+
+logger.debug('Debug message')
+logger.info('Info message')
+logger.warn('Warning message')
+logger.error('Error message')
+logger.fatal('Fatal message')
+```
+
+**File:** src/services.v
+**Lifecycle:** Application lifetime
+**Dependencies:** None
+
+#### CacheService
+
+In-memory caching with TTL.
+
+```v
+cache := new_cache_service()
 cache.init()
-cache.max_size = 1000
 
-cache.set('user:123', user_json, 300)  // 5 min TTL
-user_json := cache.get('user:123') or { fetch_user(123) }
-stats := cache.get_stats()
+cache.set('key', 'value', 300)  // 5 minute TTL
+value := cache.get('key') or { /* handle not found */ }
+cache.delete('key')
+cache.clear()
 ```
 
-### Backend - ValidationService
+**File:** src/services.v
+**Lifecycle:** Application lifetime
+**Dependencies:** None
+
+#### ValidationService
+
+Input validation.
 
 ```v
-validation := registry.get_validation() or { return }
+validation := new_validation_service()
 validation.init()
 
 validation.add_rule('email', 'required')
 validation.add_rule('email', 'email')
-validation.add_rule('password', 'min:8')
 
 result := validation.validate(data)
 if !result.is_valid {
-    for err in result.errors {
-        println('${err.field}: ${err.message}')
-    }
+    // Handle errors
 }
 ```
 
-### Frontend - StorageService
+**File:** src/services.v
+**Lifecycle:** Application lifetime
+**Dependencies:** None
 
-```typescript
-constructor(private storage: StorageService) {}
+#### SqliteService
 
-// Set with TTL
-this.storage.set('user', user, { ttl: 3600000 }); // 1 hour
+Database operations.
 
-// Get with default
-const user = this.storage.get<User>('user', defaultUser);
+```v
+db := new_sqlite_service('users.db') or { /* handle error */ }
 
-// Check existence
-const hasUser = this.storage.has('user');
-
-// Get stats
-const stats = this.storage.getStats();
+users := db.get_all_users()
+user := db.create_user('Name', 'email@test.com', 25) or { /* handle error */ }
+db.update_user(1, 'Name', 'email@test.com', 25) or { /* handle error */ }
+db.delete_user(1) or { /* handle error */ }
 ```
 
-### Frontend - HttpService
+**File:** src/services.v
+**Lifecycle:** Application lifetime
+**Dependencies:** os, json, security
+
+### Frontend Services
+
+#### ApiService
+
+Backend communication.
 
 ```typescript
-constructor(private http: HttpService) {}
+readonly api = inject(ApiService);
 
-// Set base URL and auth
-this.http.setBaseUrl('/api');
-this.http.setAuthToken(token);
-
-// GET with caching
-const result = await this.http.get<User[]>('/users', { 
-  cache: true, 
-  cacheTtl: 60000 
-});
-
-// POST with retry
-const created = await this.http.post<User>('/users', userData, {
-  retry: true,
-  maxRetries: 3
-});
+const result = await api.call('getUsers');
+const data = await api.callOrThrow('getData');
 ```
 
-### Frontend - NotificationService
+**File:** frontend/src/core/api.service.ts
+**Lifecycle:** Singleton
+**Dependencies:** None
+
+#### StorageService
+
+LocalStorage abstraction.
 
 ```typescript
-constructor(private notifications: NotificationService) {}
+readonly storage = inject(StorageService);
 
-// Info
-this.notifications.info('Info', 'Message');
-
-// Success
-this.notifications.success('Saved!', 'Data updated successfully');
-
-// Warning
-this.notifications.warning('Warning', 'Data is stale');
-
-// Error
-this.notifications.error('Error', 'Failed to save data');
-
-// With custom duration
-this.notifications.show('Title', 'Message', { duration: 10000 });
+storage.set('key', 'value');
+const value = storage.get('key', 'default');
+storage.delete('key');
 ```
+
+**File:** frontend/src/core/storage.service.ts
+**Lifecycle:** Singleton
+**Dependencies:** None
+
+#### LoggerService
+
+Application logging.
+
+```typescript
+readonly logger = inject(LoggerService);
+
+logger.debug('Debug', { data });
+logger.info('Info');
+logger.warn('Warning');
+logger.error('Error', error);
+```
+
+**File:** frontend/src/core/logger.service.ts
+**Lifecycle:** Singleton
+**Dependencies:** None
+
+#### NotificationService
+
+Toast notifications.
+
+```typescript
+readonly notifications = inject(NotificationService);
+
+notifications.success('Success');
+notifications.error('Error');
+notifications.info('Info');
+notifications.warning('Warning');
+```
+
+**File:** frontend/src/core/notification.service.ts
+**Lifecycle:** Singleton
+**Dependencies:** None
+
+#### LoadingService
+
+Loading state management.
+
+```typescript
+readonly loading = inject(LoadingService);
+
+loading.show('Loading...');
+loading.hide();
+loading.hideAll();
+```
+
+**File:** frontend/src/core/loading.service.ts
+**Lifecycle:** Singleton
+**Dependencies:** None
+
+#### ThemeService
+
+Theme management.
+
+```typescript
+readonly theme = inject(ThemeService);
+
+theme.setTheme('dark');
+theme.setTheme('light');
+theme.toggle();
+const current = theme.getTheme();
+```
+
+**File:** frontend/src/core/theme.service.ts
+**Lifecycle:** Singleton
+**Dependencies:** None
+
+#### ClipboardService
+
+Clipboard operations.
+
+```typescript
+readonly clipboard = inject(ClipboardService);
+
+await clipboard.copy('text');
+const text = await clipboard.read();
+```
+
+**File:** frontend/src/core/clipboard.service.ts
+**Lifecycle:** Singleton
+**Dependencies:** None
+
+#### NetworkMonitorService
+
+Network status monitoring.
+
+```typescript
+readonly network = inject(NetworkMonitorService);
+
+const online = network.isOnline();
+const status = network.getStatus();
+await network.waitForOnline(5000);
+```
+
+**File:** frontend/src/core/network-monitor.service.ts
+**Lifecycle:** Singleton
+**Dependencies:** None
+
+---
 
 ## Best Practices
 
-### 1. Use Interfaces
+### Backend
 
-Define interfaces for testability:
+1. **Create services in main()** - All services should be created in the main function
+2. **Pass services to handlers** - Use closure capture to pass services to handlers
+3. **Dispose on shutdown** - Register cleanup handlers for graceful shutdown
+4. **Use mut for mutable services** - Mark services as mut when they need modification
+5. **Check initialization** - Always call init() after creating services
 
-```v
-// Backend
-pub interface ILogger {
-    info(message string)
-    error(message string)
-}
+### Frontend
 
-// Use interface in structs
-pub struct MyService {
-    logger &ILogger  // Can be mocked in tests
-}
-```
+1. **Use providedIn: 'root'** - For singleton services
+2. **Use inject() in components** - Prefer inject() over constructor injection
+3. **Use signals for state** - Use signal-based state management
+4. **Expose readonly signals** - Use asReadonly() for public API
+5. **Use computed for derived state** - Use computed() for derived values
+6. **Clean up subscriptions** - Use effects with proper cleanup
 
-```typescript
-// Frontend
-export interface IStorage {
-  get<T>(key: string): T | null;
-  set<T>(key: string, value: T): void;
-}
+### Service Communication
 
-// Use interface in constructors
-constructor(private storage: IStorage) {}
-```
+1. **Backend to Frontend** - Use WebUI bridge for RPC calls
+2. **Frontend to Backend** - Use api.call() or api.callOrThrow()
+3. **Error Handling** - Handle errors consistently across services
+4. **Loading States** - Show loading indicators during async operations
 
-### 2. Proper Lifecycle Selection
+---
 
-| Use Case | Lifecycle |
-|----------|-----------|
-| Configuration | Singleton |
-| Logging | Singleton |
-| Cache | Singleton |
-| Database Connection | Singleton |
-| HTTP Client | Singleton |
-| Request Handler | Transient |
-| Session Data | Scoped |
-
-### 3. Dispose Resources
-
-Implement cleanup:
-
-```v
-pub fn (s &DatabaseService) dispose() {
-    s.disconnect()
-}
-
-pub fn (s &CacheService) dispose() {
-    s.clear()
-}
-
-// Container calls dispose on all services
-container.dispose()
-```
-
-```typescript
-@Injectable({ providedIn: 'root' })
-export class NetworkMonitorService implements OnDestroy {
-  ngOnDestroy(): void {
-    clearInterval(this.checkInterval);
-  }
-}
-```
-
-### 4. Service Composition
-
-Compose services via facade:
-
-```typescript
-// Good - Single injection point
-constructor(private services: AppServices) {}
-
-async saveData(data: any) {
-  await this.services.withLoading(
-    () => this.services.http.post('/api/save', data),
-    'Saving...'
-  );
-  this.services.notifications.success('Saved!');
-}
-```
-
-### 5. Error Handling in Services
-
-Return Result types:
-
-```v
-pub fn get_user(id int) result.Result[User] {
-    if id <= 0 {
-        return result.err[User](error.validation_error('id', 'Invalid'))
-    }
-    return fetch_user(id)
-}
-```
-
-```typescript
-async getUser(id: number): Promise<Result<User>> {
-    if (id <= 0) {
-        return err({ code: 'VALIDATION_ERROR', message: 'Invalid' });
-    }
-    return ok(await this.http.get<User>(`/users/${id}`));
-}
-```
-
-## Testing Services
-
-### Backend Tests
-
-```v
-fn test_cache_service() {
-    mut cache := new_cache_service()
-    cache.init()
-    
-    cache.set('key', 'value', 300)
-    assert cache.has('key') == true
-    
-    value := cache.get('key') or {
-        assert false
-        return
-    }
-    assert value == 'value'
-}
-```
-
-### Frontend Tests
-
-```typescript
-describe('StorageService', () => {
-  let service: StorageService;
-  
-  beforeEach(() => {
-    TestBed.configureTestingModule({});
-    service = TestBed.inject(StorageService);
-  });
-  
-  it('should store and retrieve values', () => {
-    service.set('key', 'value');
-    expect(service.get('key')).toBe('value');
-  });
-});
-```
-
-## Migration Guide
-
-### Adding a New Service
-
-1. Create service file in appropriate location
-2. Implement interface if applicable
-3. Register in DI container/registry
-4. Add to service catalog in documentation
-5. Write tests
-
-### Backend Registration
-
-```v
-// In registry.v
-pub fn (mut sr ServiceRegistry) register_my_service() &ServiceRegistry {
-    result := sr.container.register_singleton_fn('my_service', fn () voidptr {
-        mut service := new_my_service()
-        service.init()
-        return service
-    })
-    
-    if result.success {
-        sr.registered << 'my_service'
-    }
-    
-    return sr
-}
-```
-
-### Frontend Registration
-
-```typescript
-// Just use providedIn: 'root'
-@Injectable({ providedIn: 'root' })
-export class MyService {
-  // Automatically available
-}
-```
+*Last Updated: 2026-03-14*

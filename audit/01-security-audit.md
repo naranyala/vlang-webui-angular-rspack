@@ -15,10 +15,10 @@ This security audit identified **30 distinct issues** across the codebase, with 
 
 | Severity | Count | Priority |
 |----------|-------|----------|
-| 🔴 Critical | 5 | Immediate |
-| 🟠 High | 5 | Within 1 week |
-| 🟡 Medium | 7 | Within 1 month |
-| 🟢 Low | 13 | Backlog |
+| Critical Critical | 5 | Immediate |
+| High High | 5 | Within 1 week |
+| Medium Medium | 7 | Within 1 month |
+| Low Low | 13 | Backlog |
 
 ---
 

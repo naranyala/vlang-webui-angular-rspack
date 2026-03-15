@@ -2,6 +2,32 @@ module security
 
 import time
 
+// AuthUserInfo - User information (defined here to avoid V compiler module issues)
+pub struct AuthUserInfo {
+pub mut:
+	id            string
+	username      string
+	email         string
+	password_hash string
+	roles         []string
+	permissions   []string
+	created_at    u64
+	last_login    u64
+}
+
+// AuthResult - Authentication result
+pub struct AuthResult {
+pub mut:
+	success    bool
+	user_id    string
+	username   string
+	roles      []string
+	permissions []string
+	token      string
+	expires_at u64
+	error      string
+}
+
 // Note: encoding.hex and strings imports removed as they're not used in simplified version
 
 // ============================================================================

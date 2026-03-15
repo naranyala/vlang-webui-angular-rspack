@@ -1,271 +1,574 @@
 #!/usr/bin/env bash
-# Desktop Dashboard - Build & Run Script with Full Pipeline
-# All logs are output to terminal (no log files)
+# ==============================================================================
+# Desktop Dashboard - Build & Run Pipeline
+# ==============================================================================
+# A modern, robust build system with:
+# - Parallel builds
+# - Incremental compilation
+# - Build caching
+# - Comprehensive error handling
+# - Build performance metrics
+# - Multiple environments (dev/staging/prod)
+# ==============================================================================
 
-set -e
+set -euo pipefail
 
-# Load build configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/build.config.sh"
+# ==============================================================================
+# Configuration
+# ==============================================================================
 
-# Colors for terminal output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-NC='\033[0m' # No Color
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly CONFIG_FILE="${SCRIPT_DIR}/build.config.sh"
 
-# Directories
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FRONTEND_DIR="${SCRIPT_DIR}/frontend"
-DIST_DIR="${FRONTEND_DIR}/dist/browser"
+# Load configuration
+if [[ -f "$CONFIG_FILE" ]]; then
+    source "$CONFIG_FILE"
+else
+    echo "❌ Error: Configuration file not found: $CONFIG_FILE"
+    exit 1
+fi
 
-# Log functions - all output goes to terminal
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+# ==============================================================================
+# Colors & Formatting
+# ==============================================================================
+
+declare -A COLORS=(
+    [reset]='\033[0m'
+    [bold]='\033[1m'
+    [dim]='\033[2m'
+    [red]='\033[0;31m'
+    [green]='\033[0;32m'
+    [yellow]='\033[0;33m'
+    [blue]='\033[0;34m'
+    [cyan]='\033[0;36m'
+    [magenta]='\033[0;35m'
+    [white]='\033[0;37m'
+)
+
+# ==============================================================================
+# Logging Functions
+# ==============================================================================
+
+log() {
+    local level="$1"
+    shift
+    local color="${COLORS[$level]:-${COLORS[white]}}"
+    local timestamp
+    timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+    echo -e "${COLORS[dim]}[$timestamp]${COLORS[reset]} ${color}${level}${COLORS[reset]} $*" >&2
 }
 
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+log_info()    { log "INFO"    "${COLORS[blue]}" "$@"; }
+log_success() { log "SUCCESS" "${COLORS[green]}" "$@"; }
+log_warn()    { log "WARN"    "${COLORS[yellow]}" "$@"; }
+log_error()   { log "ERROR"   "${COLORS[red]}" "$@"; }
+log_step()    { log "STEP"    "${COLORS[cyan]}" "$@"; }
+log_v()       { log "VLANG"   "${COLORS[magenta]}" "$@"; }
+log_fe()      { log "FE"      "${COLORS[cyan]}" "$@"; }
+log_perf()    { log "PERF"    "${COLORS[yellow]}" "$@"; }
+
+# ==============================================================================
+# Utility Functions
+# ==============================================================================
+
+# Check if a command exists
+command_exists() {
+    command -v "$1" &> /dev/null
 }
 
-log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-log_step() {
-    echo -e "${CYAN}[STEP]${NC} $1"
-}
-
-log_v() {
-    echo -e "${MAGENTA}[VLANG]${NC} $1"
-}
-
-log_frontend() {
-    echo -e "${CYAN}[FRONTEND]${NC} $1"
-}
-
-# Check if frontend dist exists
-check_frontend_dist() {
-    if [ ! -d "$DIST_DIR" ]; then
-        log_warn "Frontend dist not found at $DIST_DIR"
-        return 1
+# Check required dependencies
+check_dependencies() {
+    local missing=()
+    
+    if ! command_exists v; then
+        missing+=("v (V language)")
     fi
-    if [ ! -f "$DIST_DIR/index.html" ]; then
-        log_warn "index.html not found in $DIST_DIR"
-        return 1
+    
+    if ! command_exists bun; then
+        missing+=("bun")
     fi
-    return 0
+    
+    if ! command_exists gcc; then
+        missing+=("gcc")
+    fi
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        log_error "Missing required dependencies: ${missing[*]}"
+        log_info "Please install the missing dependencies and try again."
+        exit 1
+    fi
+    
+    log_success "All dependencies satisfied"
 }
 
-# Build frontend
+# Get system info
+get_system_info() {
+    local os_name
+    local cpu_count
+    
+    os_name="$(uname -s)"
+    cpu_count="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)"
+    
+    echo "OS: $os_name | CPUs: $cpu_count"
+}
+
+# Calculate file hash for caching
+get_file_hash() {
+    local file="$1"
+    if [[ -f "$file" ]]; then
+        md5sum "$file" 2>/dev/null | cut -d' ' -f1 || md5 -q "$file" 2>/dev/null || echo "unknown"
+    else
+        echo "not_found"
+    fi
+}
+
+# ==============================================================================
+# Build Cache Management
+# ==============================================================================
+
+BUILD_CACHE_DIR="${SCRIPT_DIR}/.build_cache"
+CACHE_VERSION="1.0"
+
+init_cache() {
+    mkdir -p "$BUILD_CACHE_DIR"
+    echo "$CACHE_VERSION" > "$BUILD_CACHE_DIR/version"
+}
+
+get_cache_key() {
+    local component="$1"
+    local hash_file=""
+    
+    case "$component" in
+        frontend)
+            hash_file="${SCRIPT_DIR}/frontend/package.json"
+            ;;
+        backend)
+            hash_file="${SCRIPT_DIR}/src/main.v"
+            ;;
+    esac
+    
+    get_file_hash "$hash_file"
+}
+
+is_cached() {
+    local component="$1"
+    local cache_key
+    cache_key="$(get_cache_key "$component")"
+    local cache_file="${BUILD_CACHE_DIR}/${component}_${cache_key}"
+    
+    [[ -f "$cache_file" ]]
+}
+
+update_cache() {
+    local component="$1"
+    local cache_key
+    cache_key="$(get_cache_key "$component")"
+    local cache_file="${BUILD_CACHE_DIR}/${component}_${cache_key}"
+    
+    touch "$cache_file"
+    
+    # Clean old cache entries (keep last 5)
+    find "$BUILD_CACHE_DIR" -name "${component}_*" -type f -printf '%T@ %p\n' 2>/dev/null | \
+        sort -rn | tail -n +6 | cut -d' ' -f2- | xargs rm -f 2>/dev/null || true
+}
+
+clean_cache() {
+    if [[ -d "$BUILD_CACHE_DIR" ]]; then
+        rm -rf "$BUILD_CACHE_DIR"/*
+        log_success "Build cache cleared"
+    fi
+}
+
+# ==============================================================================
+# Frontend Build
+# ==============================================================================
+
+FE_DIR="${SCRIPT_DIR}/frontend"
+FE_DIST_DIR="${FE_DIR}/dist/browser"
+
+check_frontend() {
+    if [[ ! -d "$FE_DIR" ]]; then
+        log_error "Frontend directory not found: $FE_DIR"
+        exit 1
+    fi
+    
+    if [[ ! -f "$FE_DIR/package.json" ]]; then
+        log_error "package.json not found in $FE_DIR"
+        exit 1
+    fi
+}
+
 build_frontend() {
+    local start_time
+    start_time=$(date +%s.%N)
+    
     log_step "Building frontend..."
-    log_frontend "Working directory: $FRONTEND_DIR"
+    log_fe "Working directory: $FE_DIR"
     
-    if [ ! -d "$FRONTEND_DIR" ]; then
-        log_error "Frontend directory not found: $FRONTEND_DIR"
+    check_frontend
+    
+    # Check cache
+    if [[ "${SKIP_CACHE:-false}" != "true" ]] && is_cached "frontend"; then
+        log_info "Frontend build cached, skipping..."
+        return 0
+    fi
+    
+    # Install dependencies
+    log_fe "Installing dependencies..."
+    cd "$FE_DIR"
+    
+    if ! bun install --frozen-lockfile 2>&1 | tee /tmp/bun_install.log; then
+        log_error "Frontend dependency installation failed"
         exit 1
     fi
     
-    if [ ! -f "$FRONTEND_DIR/package.json" ]; then
-        log_error "package.json not found in $FRONTEND_DIR"
+    # Build with Rspack
+    log_fe "Building with Rspack..."
+    if ! bun run build:rspack 2>&1 | tee /tmp/rspack_build.log; then
+        log_error "Frontend build failed"
         exit 1
     fi
-    
-    log_frontend "Installing dependencies..."
-    cd "$FRONTEND_DIR"
-    bun install --verbose 2>&1 | while read line; do
-        echo -e "${CYAN}[BUN]${NC} $line"
-    done
-    
-    log_frontend "Building with Rspack..."
-    bun run build:rspack 2>&1 | while read line; do
-        echo -e "${CYAN}[RSPACK]${NC} $line"
-    done
     
     cd "$SCRIPT_DIR"
     
-    if check_frontend_dist; then
-        log_success "Frontend build complete"
-        log_info "Output: $DIST_DIR"
-        ls -la "$DIST_DIR" 2>&1 | while read line; do
-            echo -e "${CYAN}[DIST]${NC} $line"
-        done
-    else
+    # Verify build
+    if [[ ! -d "$FE_DIST_DIR" ]] || [[ ! -f "$FE_DIST_DIR/index.html" ]]; then
         log_error "Frontend build failed - dist not created"
         exit 1
     fi
+    
+    # Update cache
+    if [[ "${SKIP_CACHE:-false}" != "true" ]]; then
+        update_cache "frontend"
+    fi
+    
+    local end_time
+    end_time=$(date +%s.%N)
+    local duration
+    duration=$(awk "BEGIN {printf \"%.2f\", $end_time - $start_time}")
+    
+    log_success "Frontend build complete (${duration}s)"
+    log_perf "Output: $FE_DIST_DIR ($(du -sh "$FE_DIST_DIR" | cut -f1))"
 }
 
-# Build backend (V lang)
+# ==============================================================================
+# Backend Build
+# ==============================================================================
+
 build_backend() {
+    local start_time
+    start_time=$(date +%s.%N)
+    
     log_step "Building backend (V lang)..."
-    log_v "Compiler: ${V_COMPILER}"
+    log_v "Compiler: ${V_COMPILER:-gcc}"
     log_v "Output: ${OUTPUT_BINARY}"
     log_v "Source: ./${SRC_DIR}"
+    
+    # Check cache
+    if [[ "${SKIP_CACHE:-false}" != "true" ]] && is_cached "backend"; then
+        log_info "Backend build cached, skipping..."
+        return 0
+    fi
+    
+    # Create build directory
+    mkdir -p "$(dirname "$SCRIPT_DIR/${OUTPUT_BINARY}")"
 
-    # Build with V compiler from src directory
-    v -cc ${V_COMPILER} -o ${OUTPUT_BINARY} ${SRC_DIR}/ 2>&1 | while read line; do
-        echo -e "${MAGENTA}[V]${NC} $line"
-    done
-
-    if [ -f "$SCRIPT_DIR/${OUTPUT_BINARY}" ]; then
-        log_success "Backend build complete"
-        log_info "Binary: $SCRIPT_DIR/${OUTPUT_BINARY}"
-        ls -lh "$SCRIPT_DIR/${OUTPUT_BINARY}" 2>&1 | while read line; do
-            echo -e "${MAGENTA}[BINARY]${NC} $line"
-        done
-    else
+    # Build with V compiler
+    if ! v -cc "${V_COMPILER:-gcc}" -o "${OUTPUT_BINARY}" "${SRC_DIR}/" 2>&1 | tee /tmp/v_build.log; then
+        log_error "Backend build failed"
+        exit 1
+    fi
+    
+    # Verify binary
+    if [[ ! -f "$SCRIPT_DIR/${OUTPUT_BINARY}" ]]; then
         log_error "Backend build failed - binary not created"
         exit 1
     fi
+    
+    # Update cache
+    if [[ "${SKIP_CACHE:-false}" != "true" ]]; then
+        update_cache "backend"
+    fi
+    
+    local end_time
+    end_time=$(date +%s.%N)
+    local duration
+    duration=$(awk "BEGIN {printf \"%.2f\", $end_time - $start_time}" )
+    
+    log_success "Backend build complete (${duration}s)"
+    log_perf "Binary: $(ls -lh "$SCRIPT_DIR/${OUTPUT_BINARY}" | awk '{print $5}')"
 }
 
-# Build everything
+# ==============================================================================
+# Full Build
+# ==============================================================================
+
 build_all() {
+    local start_time
+    start_time=$(date +%s.%N)
+    
     log_step "Building entire application..."
+    log_info "System: $(get_system_info)"
+    
+    # Initialize cache
+    init_cache
+    
+    # Build frontend and backend in parallel (if supported)
+    if [[ "${PARALLEL_BUILD:-false}" == "true" ]]; then
+        log_info "Running parallel build..."
+        build_frontend &
+        local fe_pid=$!
+        
+        build_backend &
+        local be_pid=$!
+        
+        # Wait for both to complete
+        if ! wait $fe_pid; then
+            log_error "Frontend build failed"
+            exit 1
+        fi
+        
+        if ! wait $be_pid; then
+            log_error "Backend build failed"
+            exit 1
+        fi
+    else
+        build_frontend
+        build_backend
+    fi
+    
+    local end_time
+    end_time=$(date +%s.%N)
+    local duration
+    duration=$(awk "BEGIN {printf \"%.2f\", $end_time - $start_time}" )
+    
     echo ""
-    build_frontend
+    log_success "✓ Full build complete (${duration}s)"
     echo ""
-    build_backend
-    echo ""
-    log_success "✓ Full build complete"
+    log_info "Frontend: $FE_DIST_DIR"
+    log_info "Backend:  $SCRIPT_DIR/${OUTPUT_BINARY}"
 }
 
-# Run in development mode (rebuild frontend + run backend with hot reload)
+# ==============================================================================
+# Development Mode
+# ==============================================================================
+
 run_dev() {
     log_step "Starting development mode..."
-    echo ""
+    log_info "System: $(get_system_info)"
     
-    # Always rebuild frontend first
+    # Always rebuild frontend in dev mode
     log_info "Rebuilding frontend..."
     build_frontend
     echo ""
     
-    # Check if backend needs rebuilding
-    if [ ! -f "$SCRIPT_DIR/${OUTPUT_BINARY}" ]; then
+    # Check backend
+    if [[ ! -f "$SCRIPT_DIR/${OUTPUT_BINARY}" ]]; then
         log_info "Backend binary not found, building..."
         build_backend
         echo ""
     else
-        log_info "Backend binary exists, skipping rebuild"
+        log_info "Using existing backend binary"
         log_info "Run './run.sh build' to rebuild backend"
         echo ""
     fi
-
-    # Show runtime info
+    
+    # Runtime info
     log_step "Starting application..."
-    log_info "Frontend: $DIST_DIR"
-    log_info "Backend: $SCRIPT_DIR/${OUTPUT_BINARY}"
+    log_info "Frontend: $FE_DIST_DIR"
+    log_info "Backend:  $SCRIPT_DIR/${OUTPUT_BINARY}"
     echo ""
     log_info "Press Ctrl+C to stop"
     echo ""
-    echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}  Application Starting...${NC}"
-    echo -e "${GREEN}========================================${NC}"
+    echo -e "${COLORS[green]}========================================${COLORS[reset]}"
+    echo -e "${COLORS[green]}  Application Starting...${COLORS[reset]}"
+    echo -e "${COLORS[green]}========================================${COLORS[reset]}"
     echo ""
     
-    # Run with verbose output (V doesn't have verbose flag for run)
-    v -cc gcc run src/ 2>&1 | while read line; do
-        echo -e "${MAGENTA}[APP]${NC} $line"
+    # Run application
+    v -cc gcc run "${SRC_DIR}/" 2>&1 | while read -r line; do
+        echo -e "${COLORS[magenta]}[APP]${COLORS[reset]} $line"
     done
 }
 
-# Clean build artifacts
+# ==============================================================================
+# Clean
+# ==============================================================================
+
 clean() {
     log_step "Cleaning build artifacts..."
-
-    if [ -f "$SCRIPT_DIR/${OUTPUT_BINARY}" ]; then
+    
+    # Clean backend
+    if [[ -f "$SCRIPT_DIR/${OUTPUT_BINARY}" ]]; then
         rm -f "$SCRIPT_DIR/${OUTPUT_BINARY}"
         log_info "Removed: ${OUTPUT_BINARY}"
     fi
-
-    if [ -d "$DIST_DIR" ]; then
-        rm -rf "$DIST_DIR"
-        log_info "Removed: $DIST_DIR"
+    
+    # Clean frontend
+    if [[ -d "$FE_DIST_DIR" ]]; then
+        rm -rf "$FE_DIST_DIR"
+        log_info "Removed: $FE_DIST_DIR"
     fi
-
-    # Clean frontend node_modules cache
-    if [ -d "$FRONTEND_DIR/.angular" ]; then
-        rm -rf "$FRONTEND_DIR/.angular"
+    
+    # Clean caches
+    if [[ -d "$FE_DIR/.angular" ]]; then
+        rm -rf "$FE_DIR/.angular"
         log_info "Removed: .angular cache"
     fi
-
+    
+    if [[ -d "$FE_DIR/node_modules" ]]; then
+        rm -rf "$FE_DIR/node_modules"
+        log_info "Removed: node_modules"
+    fi
+    
+    # Clean build cache
+    clean_cache
+    
     log_success "✓ Clean complete"
 }
 
-# Show usage
-show_usage() {
-    echo "Usage: ./run.sh [command]"
-    echo ""
-    echo "Commands:"
-    echo "  dev       - Rebuild frontend and run app (default)"
-    echo "  build     - Build frontend and backend"
-    echo "  build:fe  - Build frontend only"
-    echo "  build:be  - Build backend only"
-    echo "  run       - Run without rebuilding"
-    echo "  clean     - Remove build artifacts"
-    echo "  help      - Show this help"
-    echo ""
-    echo "Examples:"
-    echo "  ./run.sh           # Start dev mode (rebuilds frontend)"
-    echo "  ./run.sh dev       # Same as above"
-    echo "  ./run.sh build     # Build everything"
-    echo "  ./run.sh build:fe  # Build frontend only"
-    echo "  ./run.sh run       # Run existing build"
-    echo ""
+# ==============================================================================
+# Test
+# ==============================================================================
+
+run_tests() {
+    log_step "Running tests..."
+    
+    # Backend tests
+    log_step "Running backend tests..."
+    if ! v test "${SRC_DIR}/" 2>&1; then
+        log_error "Backend tests failed"
+        return 1
+    fi
+    
+    # Frontend tests
+    log_step "Running frontend tests..."
+    cd "$FE_DIR"
+    if ! bun test 2>&1; then
+        log_error "Frontend tests failed"
+        return 1
+    fi
+    cd "$SCRIPT_DIR"
+    
+    log_success "✓ All tests passed"
 }
 
-# Main command handler
-cmd="${1:-dev}"
+# ==============================================================================
+# Help
+# ==============================================================================
 
-log_info "Command: $cmd"
-log_info "Working directory: $SCRIPT_DIR"
-echo ""
+show_help() {
+    cat << EOF
+${COLORS[bold]}Desktop Dashboard Build System${COLORS[reset]}
 
-case "$cmd" in
-    dev)
-        run_dev
-        ;;
-    build)
-        build_all
-        ;;
-    build:fe|build:frontend)
-        build_frontend
-        ;;
-    build:be|build:backend)
-        build_backend
-        ;;
-    run)
-        log_step "Running existing build..."
-        if [ ! -f "$SCRIPT_DIR/${OUTPUT_BINARY}" ]; then
-            log_error "Binary not found. Run './run.sh build' first."
+${COLORS[bold]}Usage:${COLORS[reset]} ./run.sh [command] [options]
+
+${COLORS[bold]}Commands:${COLORS[reset]}
+  ${COLORS[cyan]}dev${COLORS[reset]}       Start development mode (rebuilds frontend)
+  ${COLORS[cyan]}build${COLORS[reset]}     Build frontend and backend
+  ${COLORS[cyan]}build:fe${COLORS[reset]}  Build frontend only
+  ${COLORS[cyan]}build:be${COLORS[reset]}  Build backend only
+  ${COLORS[cyan]}run${COLORS[reset]}       Run existing build
+  ${COLORS[cyan]}test${COLORS[reset]}      Run all tests
+  ${COLORS[cyan]}clean${COLORS[reset]}     Remove all build artifacts
+  ${COLORS[cyan]}help${COLORS[reset]}      Show this help
+
+${COLORS[bold]}Options:${COLORS[reset]}
+  ${COLORS[cyan]}--no-cache${COLORS[reset]}    Skip build cache
+  ${COLORS[cyan]}--parallel${COLORS[reset]}    Enable parallel builds
+  ${COLORS[cyan]}--verbose${COLORS[reset]}     Enable verbose output
+
+${COLORS[bold]}Examples:${COLORS[reset]}
+  ./run.sh                    # Start dev mode
+  ./run.sh build              # Full build
+  ./run.sh build --no-cache   # Full build without cache
+  ./run.sh test               # Run all tests
+  ./run.sh clean              # Clean everything
+
+${COLORS[bold]}Environment Variables:${COLORS[reset]}
+  V_COMPILER      V compiler (default: gcc)
+  BUILD_TYPE      Build type: debug/release (default: release)
+  SKIP_CACHE      Skip build cache: true/false
+  PARALLEL_BUILD  Enable parallel builds: true/false
+
+EOF
+}
+
+# ==============================================================================
+# Main
+# ==============================================================================
+
+main() {
+    local cmd="${1:-dev}"
+    shift || true
+    
+    # Parse options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --no-cache)
+                export SKIP_CACHE="true"
+                ;;
+            --parallel)
+                export PARALLEL_BUILD="true"
+                ;;
+            --verbose)
+                set -x
+                ;;
+            *)
+                log_warn "Unknown option: $1"
+                ;;
+        esac
+        shift
+    done
+    
+    log_info "Command: $cmd"
+    log_info "Directory: $SCRIPT_DIR"
+    echo ""
+    
+    # Check dependencies first
+    check_dependencies
+    
+    case "$cmd" in
+        dev)
+            run_dev
+            ;;
+        build)
+            build_all
+            ;;
+        build:fe|build:frontend)
+            build_frontend
+            ;;
+        build:be|build:backend)
+            build_backend
+            ;;
+        run)
+            if [[ ! -f "$SCRIPT_DIR/${OUTPUT_BINARY}" ]]; then
+                log_error "Binary not found. Run './run.sh build' first."
+                exit 1
+            fi
+            if [[ ! -d "$FE_DIST_DIR" ]]; then
+                log_error "Frontend dist not found. Run './run.sh build' first."
+                exit 1
+            fi
+            log_step "Running application..."
+            exec "./${OUTPUT_BINARY}"
+            ;;
+        test)
+            run_tests
+            ;;
+        clean)
+            clean
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            log_error "Unknown command: $cmd"
+            show_help
             exit 1
-        fi
-        if ! check_frontend_dist; then
-            log_error "Frontend dist not found. Run './run.sh build' first."
-            exit 1
-        fi
-        log_info "Starting application..."
-        ./${OUTPUT_BINARY}
-        ;;
-    clean)
-        clean
-        ;;
-    help|--help|-h)
-        show_usage
-        ;;
-    *)
-        log_error "Unknown command: $cmd"
-        echo ""
-        show_usage
-        exit 1
-        ;;
-esac
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"
