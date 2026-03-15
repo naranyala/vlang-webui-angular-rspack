@@ -24,7 +24,7 @@ fn main() {
 	mut config := new_config_service()
 	config.init()
 
-	logger := new_logger_service()
+	mut logger := new_logger_service()
 	logger.init()
 
 	mut cache := new_cache_service()
@@ -38,6 +38,10 @@ fn main() {
 		vlog('ERROR: Failed to initialize database')
 		return
 	}
+
+	// DevTools service
+	mut devtools := new_devtools_service()
+	devtools.init()
 
 	vlog('All services initialized')
 
@@ -106,6 +110,74 @@ fn main() {
 	window_mgr.bind('getUserStats', fn [db] (e &ui.Event) string {
 		stats := db.get_stats()
 		return '{"success":true,"data":${json.encode(stats)}}'
+	})
+
+	// ============================================================================
+	// DevTools API Handlers
+	// ============================================================================
+
+	// Get comprehensive devtools statistics
+	window_mgr.bind('devtools.getStats', fn [mut devtools] (e &ui.Event) string {
+		devtools.increment_request_count()
+		stats := devtools.get_stats()
+		return '{"success":true,"data":${json.encode(stats)}}'
+	})
+
+	// Get recent logs
+	window_mgr.bind('devtools.getLogs', fn [devtools] (e &ui.Event) string {
+		logs := devtools.get_logs()
+		return '{"success":true,"data":${json.encode(logs)}}'
+	})
+
+	// Get error reports
+	window_mgr.bind('devtools.getErrors', fn [devtools] (e &ui.Event) string {
+		errors := devtools.get_errors()
+		return '{"success":true,"data":${json.encode(errors)}}'
+	})
+
+	// Get performance metrics
+	window_mgr.bind('devtools.getMetrics', fn [devtools] (e &ui.Event) string {
+		metrics := devtools.get_metrics()
+		return '{"success":true,"data":${json.encode(metrics)}}'
+	})
+
+	// Get application uptime
+	window_mgr.bind('devtools.getUptime', fn [devtools] (e &ui.Event) string {
+		uptime := devtools.get_uptime()
+		return '{"success":true,"data":{"uptime":${uptime}}}'
+	})
+
+	// Log a message from frontend
+	window_mgr.bind('devtools.log', fn [mut devtools] (e &ui.Event) string {
+		// Parse log data from event
+		devtools.log('info', 'Frontend log', 'devtools')
+		return '{"success":true}'
+	})
+
+	// Report an error from frontend
+	window_mgr.bind('devtools.reportError', fn [mut devtools] (e &ui.Event) string {
+		// Parse error data from event
+		devtools.report_error('FRONTEND_ERROR', 'Error from frontend', 'devtools')
+		return '{"success":true}'
+	})
+
+	// Record a performance metric from frontend
+	window_mgr.bind('devtools.recordMetric', fn [mut devtools] (e &ui.Event) string {
+		// Parse metric data from event
+		devtools.record_metric('frontend_metric', 0.0, 'ms')
+		return '{"success":true}'
+	})
+
+	// Clear logs
+	window_mgr.bind('devtools.clearLogs', fn [mut devtools] (e &ui.Event) string {
+		devtools.logs = []LogEntry{}
+		return '{"success":true}'
+	})
+
+	// Clear errors
+	window_mgr.bind('devtools.clearErrors', fn [mut devtools] (e &ui.Event) string {
+		devtools.errors = []ErrorReport{}
+		return '{"success":true}'
 	})
 
 	// Window configuration

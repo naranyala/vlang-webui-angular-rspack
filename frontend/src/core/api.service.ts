@@ -1,5 +1,5 @@
 // Modern API service with signals for backend communication
-import { Injectable, signal, computed, root } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
 
 export interface ApiResponse<T> {
   success: boolean;

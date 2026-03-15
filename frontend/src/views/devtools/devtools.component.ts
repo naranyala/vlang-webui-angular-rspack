@@ -1,13 +1,9 @@
 // src/views/devtools/devtools.component.ts
-// Simplified DevTools panel for debugging
+// DevTools panel for debugging with backend integration
 
-import { Component, signal } from '@angular/core';
+import { Component, signal, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { errorInterceptor } from '../../core/error-interceptor';
-import { EventBusViewModel } from '../../viewmodels/event-bus.viewmodel';
-import { getLogger } from '../../viewmodels/logger.viewmodel';
-
-const logger = getLogger('devtools');
+import { DevToolsService, type LogEntry, type ErrorReport } from '../../core/devtools.service';
 
 @Component({
   selector: 'app-devtools',
@@ -35,72 +31,167 @@ const logger = getLogger('devtools');
       </div>
 
       <div class="devtools__content">
-        @if (activeTab() === 'frontend') {
+        @if (devToolsService.isLoading()) {
+          <div class="loading-state">Loading...</div>
+        }
+
+        @if (activeTab() === 'stats') {
           <div class="devtools-panel">
             <div class="panel-section">
-              <h4>Frontend Error Stats</h4>
+              <h4>Application Statistics</h4>
               <div class="stats-grid">
                 <div class="stat-card">
-                  <div class="stat-card__value">{{ errorStats.total }}</div>
-                  <div class="stat-card__label">Total Errors</div>
+                  <div class="stat-card__value">{{ formatUptime(uptime()) }}</div>
+                  <div class="stat-card__label">Uptime</div>
                 </div>
-                <div class="stat-card stat-card--critical">
-                  <div class="stat-card__value">{{ errorStats.criticalCount }}</div>
-                  <div class="stat-card__label">Critical</div>
+                <div class="stat-card">
+                  <div class="stat-card__value">{{ stats()?.request_count ?? 0 }}</div>
+                  <div class="stat-card__label">Requests</div>
+                </div>
+                <div class="stat-card stat-card--warning">
+                  <div class="stat-card__value">{{ stats()?.error_count ?? 0 }}</div>
+                  <div class="stat-card__label">Errors</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-card__value">{{ stats()?.active_connections ?? 0 }}</div>
+                  <div class="stat-card__label">Connections</div>
                 </div>
               </div>
             </div>
 
             <div class="panel-section">
-              <h4>Errors by Source</h4>
-              <div class="breakdown-list">
-                @for (entry of errorStats.bySource | keyvalue; track entry.key) {
-                  <div class="breakdown-item">
-                    <span class="breakdown-item__label">{{ entry.key }}</span>
-                    <span class="breakdown-item__value">{{ entry.value }}</span>
+              <h4>Memory Usage</h4>
+              <div class="memory-bar">
+                <div class="memory-bar__fill" [style.width.%]="memoryPercent()">
+                  {{ memoryPercent() | number:'1.0-0' }}%
+                </div>
+              </div>
+              <div class="memory-details">
+                <span>Used: {{ memoryUsed() | number:'1.0-0' }} MB</span>
+                <span>Total: {{ memoryTotal() | number:'1.0-0' }} MB</span>
+                <span>Available: {{ memoryAvailable() | number:'1.0-0' }} MB</span>
+              </div>
+            </div>
+
+            <div class="panel-section">
+              <h4>System Information</h4>
+              <div class="system-info">
+                <div class="info-row">
+                  <span class="info-label">Hostname:</span>
+                  <span class="info-value">{{ systemInfo()?.hostname ?? 'N/A' }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">OS:</span>
+                  <span class="info-value">{{ systemInfo()?.os ?? 'N/A' }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Architecture:</span>
+                  <span class="info-value">{{ systemInfo()?.arch ?? 'N/A' }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">CPU Cores:</span>
+                  <span class="info-value">{{ systemInfo()?.cpu_cores ?? 'N/A' }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Load Average:</span>
+                  <span class="info-value">{{ loadAverage() }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        }
+
+        @if (activeTab() === 'logs') {
+          <div class="devtools-panel">
+            <div class="panel-section">
+              <h4>Recent Logs ({{ logs().length }})</h4>
+              <div class="logs-list">
+                @for (log of logs(); track log.timestamp) {
+                  <div class="log-item log-item--{{ log.level }}">
+                    <span class="log-item__time">{{ formatTime(log.timestamp) }}</span>
+                    <span class="log-item__level">{{ log.level }}</span>
+                    <span class="log-item__source">{{ log.source }}</span>
+                    <span class="log-item__message">{{ log.message }}</span>
                   </div>
                 } @empty {
-                  <div class="empty-state">No errors recorded</div>
+                  <div class="empty-state">No logs available</div>
                 }
               </div>
             </div>
           </div>
         }
 
-        @if (activeTab() === 'events') {
+        @if (activeTab() === 'errors') {
           <div class="devtools-panel">
             <div class="panel-section">
-              <h4>Event Bus Stats</h4>
-              <div class="stats-grid">
-                <div class="stat-card">
-                  <div class="stat-card__value">{{ eventBusHistory.length }}</div>
-                  <div class="stat-card__label">Events in History</div>
+              <h4>Error Reports ({{ errors().length }})</h4>
+              <div class="error-stats">
+                <div class="error-stat">
+                  <span class="error-stat__value">{{ errorStats().total }}</span>
+                  <span class="error-stat__label">Total</span>
                 </div>
-                <div class="stat-card">
-                  <div class="stat-card__value">{{ eventBusEnabled ? '✓' : '✗' }}</div>
-                  <div class="stat-card__label">Enabled</div>
+                <div class="error-stat error-stat--critical">
+                  <span class="error-stat__value">{{ errorStats().criticalCount }}</span>
+                  <span class="error-stat__label">Critical</span>
                 </div>
               </div>
-            </div>
-
-            <div class="panel-section">
-              <h4>Recent Events</h4>
-              <div class="events-list">
-                @for (event of eventBusHistory.slice(0, 20); track event.id) {
-                  <div class="event-item">
-                    <span class="event-item__time">{{ formatTime(event.timestamp) }}</span>
-                    <span class="event-item__name">{{ event.name }}</span>
+              <div class="errors-list">
+                @for (error of errors(); track error.timestamp) {
+                  <div class="error-item error-item--{{ error.error_code.includes('CRITICAL') ? 'critical' : 'normal' }}">
+                    <div class="error-item__header">
+                      <span class="error-item__time">{{ formatTime(error.timestamp) }}</span>
+                      <span class="error-item__code">{{ error.error_code }}</span>
+                    </div>
+                    <div class="error-item__message">{{ error.message }}</div>
+                    <div class="error-item__source">Source: {{ error.source }}</div>
                   </div>
                 } @empty {
-                  <div class="empty-state">No events recorded</div>
+                  <div class="empty-state">No errors reported</div>
                 }
               </div>
             </div>
           </div>
         }
 
-        @if (activeTab() === 'env') {
+        @if (activeTab() === 'metrics') {
           <div class="devtools-panel">
+            <div class="panel-section">
+              <h4>Performance Metrics</h4>
+              <div class="metrics-list">
+                @for (metric of metrics(); track metric.timestamp) {
+                  <div class="metric-item">
+                    <span class="metric-item__name">{{ metric.name }}</span>
+                    <span class="metric-item__value">{{ metric.value | number:'1.2-2' }} {{ metric.unit }}</span>
+                    <span class="metric-item__time">{{ formatTime(metric.timestamp) }}</span>
+                  </div>
+                } @empty {
+                  <div class="empty-state">No metrics recorded</div>
+                }
+              </div>
+            </div>
+          </div>
+        }
+
+        @if (activeTab() === 'actions') {
+          <div class="devtools-panel">
+            <div class="panel-section">
+              <h4>Quick Actions</h4>
+              <div class="actions-grid">
+                <button type="button" class="action-btn" (click)="refresh()">
+                  ⟳ Refresh All Data
+                </button>
+                <button type="button" class="action-btn" (click)="clearLogs()">
+                  🗔 Clear Logs
+                </button>
+                <button type="button" class="action-btn" (click)="clearErrors()">
+                  🗔 Clear Errors
+                </button>
+                <button type="button" class="action-btn" (click)="triggerTestError()">
+                  ⚠ Trigger Test Error
+                </button>
+              </div>
+            </div>
+
             <div class="panel-section">
               <h4>Environment</h4>
               <div class="env-grid">
@@ -120,25 +211,6 @@ const logger = getLogger('devtools');
                   <span class="env-label">Timezone:</span>
                   <span class="env-value">{{ timezone }}</span>
                 </div>
-              </div>
-            </div>
-          </div>
-        }
-
-        @if (activeTab() === 'actions') {
-          <div class="devtools-panel">
-            <div class="panel-section">
-              <h4>Quick Actions</h4>
-              <div class="actions-grid">
-                <button type="button" class="action-btn" (click)="clearLocalStorage()">
-                  Clear LocalStorage
-                </button>
-                <button type="button" class="action-btn" (click)="printErrorSummary()">
-                  Print Error Summary
-                </button>
-                <button type="button" class="action-btn" (click)="triggerTestError()">
-                  Trigger Test Error
-                </button>
               </div>
             </div>
           </div>
@@ -226,6 +298,12 @@ const logger = getLogger('devtools');
       padding: 12px;
     }
 
+    .loading-state {
+      text-align: center;
+      padding: 40px;
+      color: #858585;
+    }
+
     .devtools-panel {
       display: flex;
       flex-direction: column;
@@ -260,7 +338,7 @@ const logger = getLogger('devtools');
       border-left: 3px solid #007acc;
     }
 
-    .stat-card--critical {
+    .stat-card--warning {
       border-left-color: #c7254e;
     }
 
@@ -276,13 +354,40 @@ const logger = getLogger('devtools');
       margin-top: 4px;
     }
 
-    .breakdown-list {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
+    .memory-bar {
+      background: #1e1e1e;
+      border-radius: 4px;
+      height: 30px;
+      overflow: hidden;
+      position: relative;
     }
 
-    .breakdown-item {
+    .memory-bar__fill {
+      background: linear-gradient(90deg, #007acc, #00a8ff);
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: bold;
+      transition: width 0.3s ease;
+    }
+
+    .memory-details {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      font-size: 11px;
+      color: #858585;
+    }
+
+    .system-info {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .info-row {
       display: flex;
       justify-content: space-between;
       padding: 6px 8px;
@@ -290,25 +395,25 @@ const logger = getLogger('devtools');
       border-radius: 4px;
     }
 
-    .breakdown-item__label {
+    .info-label {
       color: #858585;
     }
 
-    .breakdown-item__value {
-      color: #fff;
+    .info-value {
+      color: #d4d4d4;
     }
 
-    .events-list {
+    .logs-list {
       display: flex;
       flex-direction: column;
       gap: 4px;
-      max-height: 300px;
+      max-height: 400px;
       overflow-y: auto;
     }
 
-    .event-item {
+    .log-item {
       display: grid;
-      grid-template-columns: 60px 1fr;
+      grid-template-columns: 60px 50px 80px 1fr;
       gap: 8px;
       padding: 6px 8px;
       background: #1e1e1e;
@@ -316,12 +421,124 @@ const logger = getLogger('devtools');
       font-size: 11px;
     }
 
-    .event-item__time {
-      color: #858585;
+    .log-item--debug { border-left: 2px solid #6a9955; }
+    .log-item--info { border-left: 2px solid #007acc; }
+    .log-item--warn { border-left: 2px solid #dcdcaa; }
+    .log-item--error { border-left: 2px solid #c7254e; }
+
+    .log-item__time { color: #858585; }
+    .log-item__level { font-weight: bold; }
+    .log-item__source { color: #9cdcfe; }
+    .log-item__message { color: #d4d4d4; }
+
+    .error-stats {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 12px;
     }
 
-    .event-item__name {
-      color: #9cdcfe;
+    .error-stat {
+      background: #1e1e1e;
+      padding: 12px;
+      border-radius: 4px;
+      text-align: center;
+      flex: 1;
+    }
+
+    .error-stat--critical {
+      background: #2d1f1f;
+    }
+
+    .error-stat__value {
+      display: block;
+      font-size: 24px;
+      font-weight: bold;
+      color: #fff;
+    }
+
+    .error-stat--critical .error-stat__value {
+      color: #c7254e;
+    }
+
+    .error-stat__label {
+      display: block;
+      font-size: 10px;
+      color: #858585;
+      margin-top: 4px;
+    }
+
+    .errors-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .error-item {
+      padding: 8px;
+      background: #1e1e1e;
+      border-radius: 4px;
+      border-left: 3px solid #858585;
+    }
+
+    .error-item--critical {
+      border-left-color: #c7254e;
+      background: #2d1f1f;
+    }
+
+    .error-item__header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      font-size: 10px;
+    }
+
+    .error-item__time { color: #858585; }
+    .error-item__code { color: #9cdcfe; font-weight: bold; }
+    .error-item__message { color: #d4d4d4; margin-bottom: 4px; }
+    .error-item__source { color: #858585; font-size: 10px; }
+
+    .metrics-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .metric-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 8px;
+      background: #1e1e1e;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    .metric-item__name { color: #9cdcfe; }
+    .metric-item__value { color: #b5cea8; font-weight: bold; }
+    .metric-item__time { color: #858585; }
+
+    .actions-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .action-btn {
+      background: #0e639c;
+      border: none;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .action-btn:hover {
+      background: #1177bb;
     }
 
     .env-grid {
@@ -354,26 +571,6 @@ const logger = getLogger('devtools');
       word-break: break-all;
     }
 
-    .actions-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 8px;
-    }
-
-    .action-btn {
-      background: #0e639c;
-      border: none;
-      color: #fff;
-      padding: 10px 16px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-
-    .action-btn:hover {
-      background: #1177bb;
-    }
-
     .empty-state {
       text-align: center;
       padding: 20px;
@@ -381,27 +578,45 @@ const logger = getLogger('devtools');
     }
   `],
 })
-export class DevtoolsComponent {
-  activeTab = signal<'frontend' | 'events' | 'env' | 'actions'>('frontend');
-  
+export class DevtoolsComponent implements OnInit {
+  private readonly devToolsService = inject(DevToolsService);
+
+  activeTab = signal<'stats' | 'logs' | 'errors' | 'metrics' | 'actions'>('stats');
+
   tabs = [
-    { id: 'frontend', label: 'Frontend', icon: 'F' },
-    { id: 'events', label: 'Events', icon: 'E' },
-    { id: 'env', label: 'Environment', icon: '⚙' },
+    { id: 'stats', label: 'Statistics', icon: '📊' },
+    { id: 'logs', label: 'Logs', icon: '📝' },
+    { id: 'errors', label: 'Errors', icon: '⚠' },
+    { id: 'metrics', label: 'Metrics', icon: '📈' },
     { id: 'actions', label: 'Actions', icon: '⚡' },
   ];
 
-  errorStats = { total: 0, criticalCount: 0, bySource: new Map<string, number>() };
-  eventBusHistory: Array<{ id: number; name: string; timestamp: string }> = [];
-  eventBusEnabled = true;
+  // Environment info
   userAgent = '';
   language = '';
   screenResolution = '';
   timezone = '';
 
-  constructor(
-    private readonly eventBus: EventBusViewModel<Record<string, unknown>>
-  ) {
+  // Computed signals from service
+  readonly stats = this.devToolsService.devToolsStats;
+  readonly logs = this.devToolsService.recentLogs;
+  readonly errors = this.devToolsService.recentErrors;
+  readonly metrics = this.devToolsService.recentMetrics;
+  readonly errorStats = this.devToolsService.errorStats;
+
+  // Derived computed values
+  readonly uptime = computed(() => this.stats()?.uptime_seconds ?? 0);
+  readonly memoryUsed = computed(() => this.stats()?.memory_usage.used_mb ?? 0);
+  readonly memoryTotal = computed(() => this.stats()?.memory_usage.total_mb ?? 0);
+  readonly memoryAvailable = computed(() => this.stats()?.memory_usage.available_mb ?? 0);
+  readonly memoryPercent = computed(() => this.stats()?.memory_usage.percent ?? 0);
+  readonly systemInfo = computed(() => this.stats()?.system_info ?? null);
+  readonly loadAverage = computed(() => {
+    const load = this.systemInfo()?.load_avg ?? [];
+    return load.map(l => l.toFixed(2)).join(', ') || 'N/A';
+  });
+
+  constructor() {
     if (typeof window !== 'undefined') {
       this.userAgent = navigator.userAgent;
       this.language = navigator.language;
@@ -414,51 +629,33 @@ export class DevtoolsComponent {
     this.refresh();
   }
 
-  refresh(): void {
-    const stats = errorInterceptor.getStats();
-    this.errorStats = {
-      total: stats.total,
-      criticalCount: stats.criticalCount,
-      bySource: stats.bySource,
-    };
-
-    const history = this.eventBus.getHistory();
-    this.eventBusHistory = history.map((h, i) => ({
-      id: i,
-      name: h.type,
-      timestamp: new Date(h.timestamp).toISOString(),
-    }));
-
-    this.eventBusEnabled = this.eventBus.isEnabled();
+  async refresh(): Promise<void> {
+    await this.devToolsService.refresh();
   }
 
-  clearLogs(): void {
-    errorInterceptor.clear();
-    this.refresh();
+  async clearLogs(): Promise<void> {
+    await this.devToolsService.clearLogs();
+    await this.devToolsService.getLogs();
   }
 
-  clearLocalStorage(): void {
-    localStorage.clear();
-    logger.info('LocalStorage cleared');
+  async clearErrors(): Promise<void> {
+    await this.devToolsService.clearErrors();
+    await this.devToolsService.getErrors();
   }
 
-  printErrorSummary(): void {
-    errorInterceptor.printSummary();
+  async triggerTestError(): Promise<void> {
+    await this.devToolsService.reportError('TEST_ERROR', 'Test error from DevTools', 'devtools');
+    await this.devToolsService.getErrors();
   }
 
-  triggerTestError(): void {
-    errorInterceptor.capture(
-      new Error('Test error from DevTools'),
-      { source: 'devtools', title: 'Test Error' }
-    );
-    this.refresh();
+  formatTime(timestamp: number): string {
+    return new Date(timestamp * 1000).toLocaleTimeString();
   }
 
-  formatTime(timestamp: string): string {
-    try {
-      return new Date(timestamp).toLocaleTimeString();
-    } catch {
-      return timestamp;
-    }
+  formatUptime(seconds: number): string {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hours}h ${minutes}m ${secs}s`;
   }
 }

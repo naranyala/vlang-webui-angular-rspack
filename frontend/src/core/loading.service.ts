@@ -1,6 +1,5 @@
 // Loading service for managing loading states and spinners
 import { Injectable, signal, computed } from '@angular/core';
-import { getLogger } from '../viewmodels/logger.viewmodel';
 
 export interface LoadingState {
   id: string;
@@ -16,8 +15,6 @@ export interface LoadingConfig {
 
 @Injectable({ providedIn: 'root' })
 export class LoadingService {
-  private readonly logger = getLogger('loading.service');
-
   private readonly loaders = signal<LoadingState[]>([]);
   private readonly globalMessage = signal<string | undefined>(undefined);
 
@@ -47,7 +44,6 @@ export class LoadingService {
       }, config.minDuration);
     }
 
-    this.logger.debug('Loading shown', { id, message });
     return id;
   }
 
@@ -58,13 +54,9 @@ export class LoadingService {
     const loaders = this.loaders();
 
     if (id) {
-      // Hide specific loader
       this.loaders.update(list => list.filter(l => l.id !== id));
-      this.logger.debug('Loading hidden', { id });
     } else if (loaders.length > 0) {
-      // Hide most recent loader
       this.loaders.update(list => list.slice(0, -1));
-      this.logger.debug('Most recent loading hidden');
     }
   }
 
@@ -73,7 +65,6 @@ export class LoadingService {
    */
   hideAll(): void {
     this.loaders.set([]);
-    this.logger.debug('All loading indicators hidden');
   }
 
   /**
@@ -95,23 +86,6 @@ export class LoadingService {
 
     try {
       return await promise;
-    } finally {
-      this.hide(id);
-    }
-  }
-
-  /**
-   * Wrap multiple promises with loading state
-   */
-  async wrapAll<T>(
-    promises: Promise<T>[],
-    message?: string,
-    config?: LoadingConfig
-  ): Promise<T[]> {
-    const id = this.show(message, config);
-
-    try {
-      return await Promise.all(promises);
     } finally {
       this.hide(id);
     }

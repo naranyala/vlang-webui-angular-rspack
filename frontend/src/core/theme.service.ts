@@ -1,6 +1,5 @@
 // Theme service for dark/light mode switching
 import { Injectable, signal, computed, effect } from '@angular/core';
-import { getLogger } from '../viewmodels/logger.viewmodel';
 import { StorageService } from './storage.service';
 
 export type Theme = 'light' | 'dark' | 'system';
@@ -16,7 +15,6 @@ const DARK_MODE_MEDIA_QUERY = '(prefers-color-scheme: dark)';
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
-  private readonly logger = getLogger('theme.service');
   private readonly storage: StorageService;
 
   private readonly theme = signal<Theme>('system');
@@ -37,7 +35,6 @@ export class ThemeService {
   constructor(storage: StorageService) {
     this.storage = storage;
     this.setupSystemThemeListener();
-    this.logger.debug('Theme service initialized');
   }
 
   /**
@@ -59,7 +56,6 @@ export class ThemeService {
     }
 
     this.initialized.set(true);
-    this.logger.info('Theme initialized', { theme: this.theme() });
   }
 
   /**
@@ -67,7 +63,6 @@ export class ThemeService {
    */
   setTheme(theme: Theme, persist = true): void {
     if (!this.isValidTheme(theme)) {
-      this.logger.warn('Invalid theme', { theme });
       return;
     }
 
@@ -77,8 +72,6 @@ export class ThemeService {
     if (persist) {
       this.storage.set(STORAGE_KEY, theme);
     }
-
-    this.logger.info('Theme changed', { theme, persisted: persist });
   }
 
   /**
@@ -127,24 +120,16 @@ export class ThemeService {
     }
 
     const mediaQuery = window.matchMedia(DARK_MODE_MEDIA_QUERY);
-
-    // Initial check
     this.systemDark.set(mediaQuery.matches);
 
-    // Listen for changes
     const handler = (event: MediaQueryListEvent) => {
       this.systemDark.set(event.matches);
-      this.logger.debug('System theme changed', { dark: event.matches });
-
-      // Apply if using system theme
       if (this.theme() === 'system') {
         this.applyTheme('system');
       }
     };
 
     mediaQuery.addEventListener('change', handler);
-
-    // Cleanup on service destroy (not implemented here, but could be with OnDestroy)
   }
 
   private applyTheme(theme: Theme): void {
@@ -157,20 +142,11 @@ export class ThemeService {
       : theme;
 
     const root = document.documentElement;
-
-    // Remove existing theme classes
     root.classList.remove('light-theme', 'dark-theme');
-
-    // Add new theme class
     root.classList.add(`${effectiveTheme}-theme`);
-
-    // Set data attribute for CSS selectors
     root.setAttribute('data-theme', effectiveTheme);
 
-    // Set meta theme-color for mobile browsers
     this.updateMetaThemeColor(effectiveTheme);
-
-    this.logger.debug('Theme applied to DOM', { theme: effectiveTheme });
   }
 
   private updateMetaThemeColor(theme: 'light' | 'dark'): void {
