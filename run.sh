@@ -384,11 +384,9 @@ run_dev() {
     echo -e "${COLORS[green]}  Application Starting...${COLORS[reset]}"
     echo -e "${COLORS[green]}========================================${COLORS[reset]}"
     echo ""
-    
-    # Run application
-    v -cc gcc run "${SRC_DIR}/" 2>&1 | while read -r line; do
-        echo -e "${COLORS[magenta]}[APP]${COLORS[reset]} $line"
-    done
+
+    # Run application directly (not in a subshell to prevent premature exit)
+    exec v -cc gcc run "${SRC_DIR}/"
 }
 
 # ==============================================================================

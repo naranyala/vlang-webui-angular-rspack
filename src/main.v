@@ -188,9 +188,10 @@ fn main() {
 	vlog('Press Ctrl+C to exit')
 	vlog('========================================')
 
-	// Run with graceful shutdown
+	// Run with graceful shutdown - this should block until window is closed
 	lifecycle.run('index.html') or {
-		vlog('ERROR: Application run failed')
+		vlog('ERROR: Application run failed: ${err}')
+		vlog('Application will now exit')
 	}
 
 	vlog('Application closed')
