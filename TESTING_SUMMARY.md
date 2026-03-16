@@ -130,7 +130,7 @@ bun test src/integration/**/*.test.ts
 | Category | Files | Tests | Status |
 |----------|-------|-------|--------|
 | Backend Services | 6 | 74 | [DONE] Complete |
-| Backend Handlers | 0 | 0 | ⏹️ Planned |
+| Backend Handlers | 0 | 0 | ⏹ Planned |
 | Backend Utils | 1 | 7 | [DONE] Complete |
 | Backend Integration | 1 | 9 | [DONE] Complete |
 | Frontend Services | 5 | 48 | [DONE] Complete |
