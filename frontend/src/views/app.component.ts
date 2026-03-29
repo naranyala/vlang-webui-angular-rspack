@@ -1,5 +1,6 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { DashboardComponent } from './dashboard/dashboard.component';
+import { LoggerService } from '../core/logger.service';
 
 @Component({
   selector: 'app-root',
@@ -19,7 +20,9 @@ import { DashboardComponent } from './dashboard/dashboard.component';
   `]
 })
 export class AppComponent implements OnInit {
+  private readonly logger = inject(LoggerService);
+
   ngOnInit(): void {
-    console.log('DuckDB Dashboard Application Initialized');
+    this.logger.info('DuckDB Dashboard Application Initialized');
   }
 }

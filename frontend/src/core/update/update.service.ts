@@ -95,7 +95,9 @@ export class UpdateService {
   readonly hasError = computed(() => this.status() === 'error');
   readonly updateAvailable = computed(() => this.availableUpdate() !== null);
 
-  constructor(private http: HttpClient) {
+  private readonly http = inject(HttpClient);
+
+  constructor() {
     this.loadConfig();
   }
 

@@ -494,11 +494,11 @@ export class ErrorTrackingService {
 
 @Injectable()
 export class TrackingErrorHandler implements ErrorHandler {
-  constructor(private errorTracking: ErrorTrackingService) {}
+  private readonly errorTracking = inject(ErrorTrackingService);
 
   handleError(error: any): void {
     this.errorTracking.captureException(error);
-    
+
     // Re-throw to maintain Angular's default behavior
     throw error;
   }

@@ -15,6 +15,8 @@ frontend-legacy/dist
 frontend-legacy/.angular
 
 */node_modules/*
+*/.angular/*
+*/dist/*
 
 thirdparty/*
 
@@ -30,3 +32,26 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Backup files
+*.bak
+*.origin
+*.old
+*.tmp
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data
+data/*.db
+data/*.json
+*.db
+
+# Logs
+logs/
+*.log
+
+# Test coverage
+coverage/

@@ -100,11 +100,11 @@ export interface NavItem {
         <!-- Content Area -->
         <div class="content-area" #contentArea>
           @if (activeView() === 'demo_duckdb') {
-            <app-duckdb-users [items]="users()" (statsChange)="onStatsUpdate($any($event))"></app-duckdb-users>
+            <app-duckdb-users [items]="users()" (statsChange)="onStatsUpdate($event)"></app-duckdb-users>
           } @else if (activeView() === 'demo_sqlite') {
-            <app-duckdb-products [items]="products()" (statsChange)="onStatsUpdate($any($event))"></app-duckdb-products>
+            <app-duckdb-products [items]="products()" (statsChange)="onStatsUpdate($event)"></app-duckdb-products>
           } @else if (activeView() === 'demo_websocket') {
-            <app-duckdb-orders [items]="orders()" (statsChange)="onStatsUpdate($any($event))"></app-duckdb-orders>
+            <app-duckdb-orders [items]="orders()" (statsChange)="onStatsUpdate($event)"></app-duckdb-orders>
           } @else {
             <markdown 
               [src]="currentMarkdownPath()" 
@@ -606,18 +606,14 @@ export class DashboardComponent implements OnInit {
   demoOpen = signal(true);
 
   docItems = signal<NavItem[]>([
-    { id: 'README', label: 'Overview', icon: '📖', active: true },
-    { id: 'IMPLEMENTATION_SUMMARY', label: 'Implementation', icon: '📋', active: false },
-    { id: 'REFACTORING_SUMMARY', label: 'Refactoring', icon: '♻️', active: false },
-    { id: 'TESTING', label: 'Testing', icon: '🧪', active: false },
-    { id: 'BACKEND_TESTING', label: 'Backend Tests', icon: '⚙️', active: false },
-    { id: 'DUCKDB_INTEGRATION', label: 'DuckDB Integration', icon: '🦆', active: false },
-    { id: 'DUCKDB_QUERY_BUILDER', label: 'Query Builder', icon: '🔨', active: false },
-    { id: 'DOCUMENTATION_GAP_ANALYSIS', label: 'Doc Gaps', icon: '📝', active: false },
-    { id: 'ENTERPRISE_READINESS_AUDIT', label: 'Enterprise', icon: '🏢', active: false },
-    { id: 'backend_README', label: 'Backend', icon: '🔙', active: false },
-    { id: 'backend_di-system', label: 'DI System', icon: '📦', active: false },
-    { id: 'frontend_README', label: 'Frontend', icon: '🎨', active: false },
+    { id: 'INDEX', label: 'Overview', icon: '📖', active: true },
+    { id: '00-GETTING_STARTED', label: 'Getting Started', icon: '🚀', active: false },
+    { id: '01-ARCHITECTURE', label: 'Architecture', icon: '🏗️', active: false },
+    { id: '01-CRUD-DEMOS', label: 'CRUD Demos', icon: '📋', active: false },
+    { id: '02-API_REFERENCE', label: 'API Reference', icon: '📚', active: false },
+    { id: '03-SECURITY', label: 'Security', icon: '🔒', active: false },
+    { id: '04-DEVELOPMENT', label: 'Development', icon: '🛠️', active: false },
+    { id: '05-DEPLOYMENT', label: 'Deployment', icon: '📦', active: false },
   ]);
 
   demoItems = signal<NavItem[]>([
@@ -629,8 +625,8 @@ export class DashboardComponent implements OnInit {
     { id: 'demo_maps', label: 'Maps', icon: '🗺️', active: false },
   ]);
 
-  currentPageTitle = signal('Overview');
-  currentMarkdownPath = signal('assets/docs/README.md');
+  currentPageTitle = signal('Documentation');
+  currentMarkdownPath = signal('docs/INDEX.md');
   stats = signal({
     totalUsers: 0,
     totalProducts: 0,
@@ -685,21 +681,19 @@ export class DashboardComponent implements OnInit {
     const demoItem = this.demoItems().find(i => i.id === viewId);
     const item = docItem || demoItem;
     this.currentPageTitle.set(item ? item.label : viewId);
-    
+
     if (viewId.startsWith('demo_')) {
       this.currentMarkdownPath.set('');
     } else {
-      const path = viewId.includes('_') && !viewId.startsWith('demo_')
-        ? `assets/docs/${viewId.replace('_', '/')}.md`
-        : `assets/docs/${viewId}.md`;
-      this.currentMarkdownPath.set(path);
+      // Point to docs folder for documentation files
+      this.currentMarkdownPath.set(`docs/${viewId}.md`);
     }
-    
+
     // On mobile, show content panel
     if (this.isMobileView()) {
       this.showContent.set(true);
     }
-    
+
     if (this.contentArea) {
       this.contentArea.nativeElement.scrollTop = 0;
     }

@@ -45,7 +45,7 @@ interface AuthForm {
               </label>
               <input type="text" id="login-username" class="form-input" placeholder="Enter your username"
                 [value]="loginForm().username"
-                (input)="updateLoginForm('username', $any($event).target.value)"
+                (input)="updateLoginForm('username', ($event.target as HTMLInputElement).value)"
                 required autocomplete="username" />
             </div>
 
@@ -58,7 +58,7 @@ interface AuthForm {
                 <input [type]="showLoginPassword() ? 'text' : 'password'" id="login-password" class="form-input"
                   placeholder="Enter your password"
                   [value]="loginForm().password"
-                  (input)="updateLoginForm('password', $any($event).target.value)"
+                  (input)="updateLoginForm('password', ($event.target as HTMLInputElement).value)"
                   required autocomplete="current-password" />
                 <button type="button" class="password-toggle" (click)="toggleLoginPassword()">
                   {{ showLoginPassword() ? '👁️' : '👁️‍🗨️' }}
@@ -91,7 +91,7 @@ interface AuthForm {
               </label>
               <input type="text" id="register-username" class="form-input" placeholder="Choose a username"
                 [value]="registerForm().username"
-                (input)="updateRegisterForm('username', $any($event).target.value)"
+                (input)="updateRegisterForm('username', ($event.target as HTMLInputElement).value)"
                 required autocomplete="username" />
             </div>
 
@@ -102,7 +102,7 @@ interface AuthForm {
               </label>
               <input type="email" id="register-email" class="form-input" placeholder="Enter your email"
                 [value]="registerForm().email"
-                (input)="updateRegisterForm('email', $any($event).target.value)"
+                (input)="updateRegisterForm('email', ($event.target as HTMLInputElement).value)"
                 required autocomplete="email" />
             </div>
 
@@ -115,7 +115,7 @@ interface AuthForm {
                 <input [type]="showRegisterPassword() ? 'text' : 'password'" id="register-password" class="form-input"
                   placeholder="Choose a password"
                   [value]="registerForm().password"
-                  (input)="updateRegisterForm('password', $any($event).target.value)"
+                  (input)="updateRegisterForm('password', ($event.target as HTMLInputElement).value)"
                   required autocomplete="new-password" />
                 <button type="button" class="password-toggle" (click)="toggleRegisterPassword()">
                   {{ showRegisterPassword() ? '👁️' : '👁️‍🗨️' }}

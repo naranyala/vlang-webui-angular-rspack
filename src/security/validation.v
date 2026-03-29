@@ -1,5 +1,7 @@
 module security
 
+import time
+
 // ============================================================================
 // Input Sanitization
 // ============================================================================
@@ -9,43 +11,43 @@ pub fn sanitize_input(input string) !string {
 	if input.len == 0 {
 		return error('Empty input')
 	}
-	
+
 	// Remove null bytes
 	mut result := input.replace('\x00', '')
-	
+
 	// Remove script tags
 	result = result.replace('<script>', '').replace('</script>', '')
-	
+
 	// Remove event handlers
 	result = result.replace('onclick=', '').replace('onerror=', '').replace('onload=', '')
-	
+
 	// Remove javascript: protocol
 	result = result.replace('javascript:', '')
-	
+
 	// Limit length
 	if result.len > 10000 {
 		result = result[..10000]
 	}
-	
+
 	return result
 }
 
 // sanitize_html removes HTML tags from input
 pub fn sanitize_html(input string) string {
-	mut result := input
 	mut in_tag := false
 	mut output := ''
-	
-	for c in input {
-		if c == '<' {
+
+	for i := 0; i < input.len; i++ {
+		c := input[i]
+		if c == `<`[0] {
 			in_tag = true
-		} else if c == '>' {
+		} else if c == `>`[0] {
 			in_tag = false
 		} else if !in_tag {
 			output += c.str()
 		}
 	}
-	
+
 	return output
 }
 
@@ -54,173 +56,135 @@ pub fn sanitize_sql_identifier(identifier string) !string {
 	if identifier.len == 0 {
 		return error('Empty identifier')
 	}
-	
+
 	// Check first character
 	first := identifier[0]
-	if !first.is_letter() && first != '_' {
+	if !first.is_letter() && first != `_`[0] {
 		return error('Identifier must start with letter or underscore')
 	}
-	
+
 	// Check all characters
-	for c in identifier {
-		if !c.is_letter() && !c.is_digit() && c != '_' {
-			return error('Invalid character in identifier: ${c}')
+	for i := 0; i < identifier.len; i++ {
+		c := identifier[i]
+		if !c.is_letter() && !c.is_digit() && c != `_`[0] {
+			return error('Invalid character in identifier: ${c.str()}')
 		}
 	}
-	
-	// Check for reserved words
-	reserved := ['select', 'insert', 'update', 'delete', 'drop', 'create', 'alter', 'from', 'where']
-	lower := identifier.to_lower()
-	for reserved_word in reserved {
-		if lower == reserved_word {
-			return error('Reserved word cannot be used as identifier: ${reserved_word}')
-		}
+
+	// Limit length
+	if identifier.len > 64 {
+		return error('Identifier too long (max 64 characters)')
 	}
-	
+
 	return identifier
 }
 
-// validate_identifier validates an identifier (alphanumeric + underscore)
-pub fn validate_identifier(name string) !string {
+// sanitize_filename validates and sanitizes a filename
+pub fn sanitize_filename(name string) !string {
 	if name.len == 0 {
-		return error('Empty name')
+		return error('Empty filename')
 	}
-	
-	for c in name {
-		if !c.is_letter() && !c.is_digit() && c != '_' {
-			return error('Invalid character: ${c}')
+
+	// Check for path traversal
+	if name.contains('../') || name.contains('..\\') {
+		return error('Invalid filename: path traversal detected')
+	}
+
+	// Check for null bytes
+	if name.contains('\x00') {
+		return error('Invalid filename: null byte detected')
+	}
+    
+	for i := 0; i < name.len; i++ {
+		c := name[i]
+		if !c.is_letter() && !c.is_digit() && c != `_`[0] && c != `-`[0] && c != `.`[0] {
+			return error('Invalid character: ${c.str()}')
 		}
 	}
-	
+
+	// Limit length
+	if name.len > 255 {
+		return error('Filename too long (max 255 characters)')
+	}
+
 	return name
 }
 
-// ============================================================================
-// Input Validation
-// ============================================================================
-
-// validate_email checks if email is valid
-pub fn validate_email(email string) bool {
-	if email.len == 0 || email.len > 254 {
-		return false
+// sanitize_phone removes non-numeric characters from phone number
+pub fn sanitize_phone(phone string) string {
+	mut result := ''
+	for i := 0; i < phone.len; i++ {
+		c := phone[i]
+		if c.is_digit() || c == ` `[0] || c == `-`[0] || c == `(`[0] || c == `)`[0] || c == `+`[0] {
+			result += c.str()
+		}
 	}
-	
-	// Must contain @
-	at_index := email.index('@') or { return false }
-	
-	// Must have something before @
-	if at_index == 0 {
-		return false
-	}
-	
-	// Must have domain after @
-	if at_index >= email.len - 1 {
-		return false
-	}
-	
-	// Domain must contain .
-	domain := email[at_index + 1..]
-	if !domain.contains('.') {
-		return false
-	}
-	
-	return true
+	return result
 }
 
-// validate_phone checks if phone number is valid
-pub fn validate_phone(phone string) bool {
-	if phone.len < 10 || phone.len > 15 {
+// is_valid_phone checks if phone number is valid
+pub fn is_valid_phone(phone string) bool {
+	if phone.len < 7 || phone.len > 20 {
 		return false
 	}
-	
 	// Allow digits, spaces, dashes, parentheses, and plus
-	for c in phone {
-		if !c.is_digit() && c != ' ' && c != '-' && c != '(' && c != ')' && c != '+' {
+	for i := 0; i < phone.len; i++ {
+		c := phone[i]
+		if !c.is_digit() && c != ` `[0] && c != `-`[0] && c != `(`[0] && c != `)`[0] && c != `+`[0] {
 			return false
 		}
 	}
-	
 	return true
 }
 
-// validate_url checks if URL is valid
-pub fn validate_url(url string) bool {
-	if url.len == 0 {
-		return false
+// sanitize_username validates username
+pub fn sanitize_username(username string) !string {
+	if username.len < 3 || username.len > 32 {
+		return error('Username must be 3-32 characters')
 	}
-	
-	// Must start with http:// or https://
-	if !url.starts_with('http://') && !url.starts_with('https://') {
-		return false
+
+	for i := 0; i < username.len; i++ {
+		c := username[i]
+		if !c.is_letter() && !c.is_digit() && c != `_`[0] && c != `.`[0] {
+			return error('Invalid character: ${c.str()}')
+		}
 	}
-	
-	// Must have domain
-	if url.len < 10 {
-		return false
-	}
-	
-	return true
+
+	return username
 }
 
-// validate_username checks if username is valid
-pub fn validate_username(username string) bool {
-	if username.len < 3 || username.len > 50 {
+// is_valid_username checks if username is valid
+pub fn is_valid_username(username string) bool {
+	if username.len < 3 || username.len > 32 {
 		return false
 	}
-	
-	for c in username {
-		if !c.is_letter() && !c.is_digit() && c != '_' && c != '.' {
+	for i := 0; i < username.len; i++ {
+		c := username[i]
+		if !c.is_letter() && !c.is_digit() && c != `_`[0] && c != `.`[0] {
 			return false
 		}
 	}
-	
 	return true
 }
 
 // ============================================================================
-// XSS Prevention
-// ============================================================================
-
-// escape_html escapes HTML special characters
-pub fn escape_html(input string) string {
-	mut result := input
-	result = result.replace('&', '&amp;')
-	result = result.replace('<', '&lt;')
-	result = result.replace('>', '&gt;')
-	result = result.replace('"', '&quot;')
-	result = result.replace('\'', '&#x27;')
-	return result
-}
-
-// escape_js escapes JavaScript special characters
-pub fn escape_js(input string) string {
-	mut result := input
-	result = result.replace('\\', '\\\\')
-	result = result.replace('"', '\\"')
-	result = result.replace('\'', '\\\'')
-	result = result.replace('\n', '\\n')
-	result = result.replace('\r', '\\r')
-	return result
-}
-
-// ============================================================================
-// Rate Limiting
+// Rate Limiter (Simple Implementation)
 // ============================================================================
 
 // RateLimiter implements a simple rate limiter
 pub struct RateLimiter {
 pub mut:
-	requests map[string][]u64
-	max_requests int
 	window_seconds int
+	max_requests   int
+	requests       map[string][]u64
 }
 
 // new_rate_limiter creates a new rate limiter
 pub fn new_rate_limiter(max_requests int, window_seconds int) &RateLimiter {
 	return &RateLimiter{
-		requests: map[string][]u64{}
-		max_requests: max_requests
 		window_seconds: window_seconds
+		max_requests: max_requests
+		requests: map[string][]u64{}
 	}
 }
 
@@ -228,47 +192,75 @@ pub fn new_rate_limiter(max_requests int, window_seconds int) &RateLimiter {
 pub fn (mut rl RateLimiter) check(key string) bool {
 	now := u64(time.now().unix())
 	window_start := now - u64(rl.window_seconds)
-	
+
 	// Get existing requests
-	existing := rl.requests[key] or { []u64{} }
-	
-	// Filter to only recent requests
-	mut recent := []u64{}
-	for ts in existing {
-		if ts > window_start {
-			recent << ts
+	mut requests := rl.requests[key] or { []u64{} }
+
+	// Filter to only requests within window
+	mut valid_requests := []u64{}
+	for t in requests {
+		if t >= window_start {
+			valid_requests << t
 		}
 	}
-	
-	// Check if over limit
-	if recent.len >= rl.max_requests {
-		rl.requests[key] = recent
+
+	// Check if under limit
+	if valid_requests.len >= rl.max_requests {
+		rl.requests[key] = valid_requests
 		return false
 	}
-	
+
 	// Add current request
-	recent << now
-	rl.requests[key] = recent
+	valid_requests << now
+	rl.requests[key] = valid_requests
+
 	return true
+}
+
+// get_remaining returns remaining requests in current window
+pub fn (mut rl RateLimiter) get_remaining(key string) int {
+	now := u64(time.now().unix())
+	window_start := now - u64(rl.window_seconds)
+
+	requests := rl.requests[key] or { return rl.max_requests }
+
+	mut valid_count := 0
+	for t in requests {
+		if t >= window_start {
+			valid_count++
+		}
+	}
+
+	return rl.max_requests - valid_count
 }
 
 // cleanup removes old entries
 pub fn (mut rl RateLimiter) cleanup() int {
 	now := u64(time.now().unix())
 	window_start := now - u64(rl.window_seconds)
-	
+
 	mut removed := 0
-	for key, timestamps in rl.requests {
-		mut recent := []u64{}
-		for ts in timestamps {
-			if ts > window_start {
-				recent << ts
-			} else {
-				removed++
+	mut keys_to_clean := []string{}
+
+	for key, requests in rl.requests {
+		mut valid_requests := []u64{}
+		for t in requests {
+			if t >= window_start {
+				valid_requests << t
 			}
 		}
-		rl.requests[key] = recent
+
+		if valid_requests.len == 0 {
+			keys_to_clean << key
+			removed++
+		} else {
+			rl.requests[key] = valid_requests
+		}
 	}
-	
+
+	for key in keys_to_clean {
+		rl.requests.delete(key)
+	}
+
 	return removed
 }

@@ -1,285 +1,402 @@
-# Architecture Overview
+# Architecture
 
-This document describes the architecture of the Desktop Dashboard application.
+This document describes the Desktop Dashboard system architecture.
 
-## System Architecture
+---
 
-The application follows a client-server architecture with dependency injection on both tiers and multiple communication protocols:
+## Table of Contents
+
+1. [System Overview](#system-overview)
+2. [Backend Architecture](#backend-architecture)
+3. [Frontend Architecture](#frontend-architecture)
+4. [Communication Layer](#communication-layer)
+5. [Data Flow](#data-flow)
+6. [Security Architecture](#security-architecture)
+
+---
+
+## System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Frontend (Angular)                       │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │   Angular   │  │   WinBox    │  │    Service Layer        │  │
-│  │  Components │  │   Windows   │  │    (DI Injected)        │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
-│         │                │                    │                  │
-│         │          WebUI Bridge           EventBus               │
-│         │          (RPC Protocol)            │                  │
-│         └────────────────┼───────────────────┘                  │
-└──────────────────────────┼───────────────────────────────────────┘
-                           │
-                           │ WebUI Bridge (JavaScript ↔ V)
-                           │
-┌──────────────────────────┼───────────────────────────────────────┐
-│                         Backend (V Language)                      │
-│                          │                                        │
-│  ┌─────────────┐  ┌──────┴───────┐  ┌─────────────────────────┐  │
-│  │   WebUI     │  │   DI         │  │    Service Layer        │  │
-│  │   Server    │  │   Container  │  │    (Injected Services)  │  │
-│  └─────────────┘  └──────────────┘  └─────────────────────────┘  │
-│                          │                                        │
-│                   Linux Sysfs / Procfs                            │
-└───────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|                     Desktop Dashboard                             |
++------------------------------------------------------------------+
+|                                                                   |
+|  +------------------+         +------------------+                |
+|  |   Angular        |         |   WebUI          |                |
+|  |   Frontend       |<------->|   Bridge         |                |
+|  |  (Port 8080)     |  HTTP   |                  |                |
+|  +------------------+         +--------+---------+                |
+|                                       |                           |
+|                               +-------v--------+                  |
+|                               |   V Backend    |                  |
+|                               |   (WebUI)      |                  |
+|                               +-------+--------+                  |
+|                                       |                           |
+|              +------------------------+------------------------+  |
+|              |                        |                        |  |
+|       +------v------+         +-------v------+        +--------v-+|
+|       |   Storage   |         |   Security |        |  System   ||
+|       |   Service   |         |   Module   |        |  Monitor  ||
+|       |  (JSON/SQL) |         |            |        |           ||
+|       +-------------+         +------------+        +-----------+|
+|                                                                   |
++------------------------------------------------------------------+
 ```
 
-## Communication Protocols
+### Components
 
-The application uses three communication approaches:
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| Frontend | Angular 21 | User interface |
+| WebUI Bridge | WebUI | Backend-frontend communication |
+| Backend | V Language | Business logic, API |
+| Storage | JSON/SQLite | Data persistence |
+| Security | Custom | Authentication, authorization |
+| System Monitor | V + OS APIs | System metrics |
 
-| Protocol | Type | Direction | Use Case |
-|----------|------|-----------|----------|
-| **WebUI Bridge** | RPC | Bidirectional | Desktop window management, API calls |
-| **HTTP/Fetch** | REST | Client→Server | Future web deployment, external APIs |
-| **Event Bus** | Pub/Sub | Broadcast | Cross-component state sync |
+---
 
-See [05-COMMUNICATION.md](05-COMMUNICATION.md) for detailed protocol documentation.
+## Backend Architecture
 
-## Component Layers
+### Module Structure
 
-### Frontend Architecture
+```
++--------------------------------------------------+
+|                      main.v                       |
+|  (Entry point, service initialization, window)   |
++------------------------+--------------------------+
+                         |
+         +---------------+---------------+
+         |               |               |
++--------v-----+  +------v------+  +-----v----------+
+| api_handlers |  |  devtools   |  |window_manager  |
++--------------+  +-------------+  +----------------+
+                         |
+         +---------------+---------------+
+         |               |               |
++--------v-----+  +------v------+  +-----v----------+
+|   services   |  |  security   |  |    errors      |
++--------------+  +-------------+  +----------------+
+```
 
-#### Presentation Layer
-- **AppComponent** - Main container with collapsible panels
-- **HomeComponent** - Card grid for technology browsing
-- **DevtoolsComponent** - Debugging and monitoring tools
-- **ErrorBoundaryComponent** - Error isolation and recovery
-- **ErrorModalComponent** - Error display dialogs
+### Service Layer
 
-#### Service Layer (Dependency Injected)
-All services use Angular's `@Injectable({ providedIn: 'root' })`:
+| Service | File | Purpose |
+|---------|------|---------|
+| ConfigService | config_service.v | Environment configuration |
+| LoggerService | logger_service.v | Application logging |
+| CacheService | cache_service.v | In-memory caching |
+| ValidationService | validation_service.v | Input validation |
+| JsonStorageService | json_storage_service.v | JSON file persistence |
+| CommunicationService | communication.v | Backend-frontend messaging |
+| DevToolsService | devtools.v | Developer tools |
 
-| Service | Purpose |
-|---------|---------|
-| `StorageService` | LocalStorage/SessionStorage with TTL |
-| `HttpService` | HTTP client with caching and retry |
-| `NotificationService` | Toast notification system |
-| `LoadingService` | Loading spinner management |
-| `ThemeService` | Dark/light theme switching |
-| `ClipboardService` | Clipboard operations |
-| `RetryService` | Retry with exponential backoff |
-| `NetworkMonitorService` | Network connectivity monitoring |
+### Security Module
 
-#### State Management
-- **Signals** - Angular's reactive primitives
-- **ViewModels** - Business logic with computed signals
-- **EventBus** - Pub/sub for cross-component communication
+| Component | File | Purpose |
+|-----------|------|---------|
+| Password Hashing | security/password.v | Multi-round key stretching |
+| Token Generation | security/token.v | High-entropy tokens |
+| Input Validation | security/validation.v | Sanitization functions |
+| CSRF Protection | security/token.v | Single-use tokens |
+| Rate Limiting | rate_limiter.v | API protection |
 
-### Backend Architecture
+---
 
-#### Presentation Layer
-- **main.v** - Application entry point
-- **WebUI Handlers** - API endpoint bindings
+## Frontend Architecture
 
-#### Service Layer (Dependency Injected)
-Services registered in DI container with lifecycles:
+### Component Hierarchy
 
-| Service | Lifecycle | Purpose |
-|---------|-----------|---------|
-| `ConfigService` | Singleton | Configuration management |
-| `CacheService` | Singleton | In-memory caching with TTL |
-| `LoggerService` | Singleton | Structured logging |
-| `ValidationService` | Singleton | Input validation |
-| `MetricsService` | Singleton | Application metrics |
-| `HealthCheckService` | Singleton | Health monitoring |
-| `AuthService` | Singleton | Authentication |
-| `DatabaseService` | Singleton | Database operations |
-| `HttpClientService` | Singleton | HTTP client |
-| `SystemInfoService` | Singleton | System information |
+```
+AppComponent
++-- DashboardComponent
+|   +-- Navigation
+|   +-- Content Area
+|   |   +-- DuckdbUsersComponent
+|   |   +-- DuckdbProductsComponent
+|   |   +-- DuckdbOrdersComponent
+|   |   +-- DataTableComponent (shared)
+|   +-- DevToolsComponent
++-- AuthComponent
++-- HomeComponent
+```
 
-#### Data Access Layer
-- **system.v** - System information via /proc and /sys
-- **network.v** - Network interfaces and statistics
-- **process.v** - Process management
-- **filesystem.v** - File operations
+### Service Layer
+
+| Service | Location | Purpose |
+|---------|----------|---------|
+| ApiService | core/api.service.ts | Backend API calls |
+| LoggerService | core/logger.service.ts | Application logging |
+| StorageService | core/storage.service.ts | Local storage |
+| WebUIService | core/webui/webui.service.ts | WebUI communication |
+| HttpService | core/http.service.ts | HTTP client wrapper |
+| ThemeService | core/theme.service.ts | Theme management |
+| WinBoxService | core/winbox.service.ts | Window management |
+
+### State Management
+
+```typescript
+// Signal-based state (modern Angular)
+export class DashboardComponent {
+  private readonly logger = inject(LoggerService);
+  private readonly api = inject(ApiService);
+  
+  // State signals
+  activeView = signal<string>('README');
+  isLoading = signal(false);
+  users = signal<User[]>([]);
+  products = signal<Product[]>([]);
+  orders = signal<Order[]>([]);
+  
+  // Computed signals
+  stats = computed(() => ({
+    totalUsers: this.users().length,
+    totalProducts: this.products().length,
+    totalOrders: this.orders().length
+  }));
+}
+```
+
+---
+
+## Communication Layer
+
+### Backend-Frontend Communication
+
+```
++----------------+                    +----------------+
+|    Angular     |                    |   V Backend    |
+|    Frontend    |                    |                |
+|                |   webui.call()     |                |
+|                |------------------->|                |
+|                |                    |   Handler      |
+|                |   Response JSON    |                |
+|                |<-------------------|                |
+|                |                    |                |
++----------------+                    +----------------+
+```
+
+### API Call Pattern
+
+**Frontend Service:**
+```typescript
+@Injectable({ providedIn: 'root' })
+export class ApiService {
+  async call<T>(method: string, params?: any): Promise<ApiResponse<T>> {
+    const response = await webui.call(method, JSON.stringify(params));
+    return JSON.parse(response);
+  }
+}
+
+// Usage
+const users = await api.call<User[]>('getUsers');
+```
+
+**Backend Handler:**
+```v
+// Handler registration
+window_mgr.bind('getUsers', fn [storage] (e &ui.Event) string {
+    users := storage.get_all_users()
+    return ok(json.encode(users))
+})
+```
+
+### Response Format
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "data": { ... },
+  "message": "Optional message"
+}
+```
+
+**Error Response:**
+```json
+{
+  "success": false,
+  "error": "Error message"
+}
+```
+
+---
 
 ## Data Flow
 
-### Request Flow (Frontend → Backend)
+### CREATE Operation
 
 ```
-1. User Action
-       ↓
-2. Component Event Handler
-       ↓
-3. Service Call (via DI)
-       ↓
-4. HTTP/WebSocket via WebUI
-       ↓
-5. Backend Handler (via DI Container)
-       ↓
-6. Service Execution
-       ↓
-7. Result/Error Response
-       ↓
-8. Frontend State Update
-       ↓
-9. UI Re-render (via Signals)
++----------+     +----------+     +----------+     +----------+
+|  User    |     |  Angular |     |   API    |     | Storage  |
+|  Input   |     |  Frontend|     | Handler  |     | Service  |
++----+-----+     +----+-----+     +----+-----+     +----+-----+
+     |               |               |               |
+     | 1. Enter data |               |               |
+     |-------------->|               |               |
+     |               |               |               |
+     |               | 2. Validate   |               |
+     |               |-------------->|               |
+     |               |               |               |
+     |               |               | 3. Create     |
+     |               |               |-------------->|
+     |               |               |               |
+     |               |               | 4. Return ID  |
+     |               |               |<--------------|
+     |               |               |               |
+     |               | 5. Success    |               |
+     |               |<--------------|               |
+     |               |               |               |
+     | 6. Confirm    |               |               |
+     |<--------------|               |               |
+     |               |               |               |
 ```
 
-### Error Flow
+### READ Operation
 
 ```
-1. Error Occurs
-       ↓
-2. Error Wrapped in Result Type
-       ↓
-3. Propagated Up Call Stack
-       ↓
-4. Handler Matches on Result
-       ↓
-5. Error Logged (via LoggerService)
-       ↓
-6. Error Response Sent to Frontend
-       ↓
-7. Frontend Displays Error (via NotificationService)
++----------+     +----------+     +----------+     +----------+
+|  User    |     |  Angular |     |   API    |     | Storage  |
+|  Request |     |  Frontend|     | Handler  |     | Service  |
++----+-----+     +----+-----+     +----+-----+     +----+-----+
+     |               |               |               |
+     | 1. Request    |               |               |
+     |-------------->|               |               |
+     |               |               |               |
+     |               | 2. GET /users |               |
+     |               |-------------->|               |
+     |               |               |               |
+     |               |               | 3. Query      |
+     |               |               |-------------->|
+     |               |               |               |
+     |               |               | 4. Return []  |
+     |               |               |<--------------|
+     |               |               |               |
+     |               | 5. Render     |               |
+     |               |<--------------|               |
+     |               |               |               |
+     | 6. Display    |               |               |
+     |<--------------|               |               |
+     |               |               |               |
 ```
 
-## Design Patterns
+---
 
-### Dependency Injection
+## Security Architecture
 
-**Backend (V):**
+### Password Hashing Flow
+
+```
++----------+     +----------+     +----------+
+|  User    |     | Password |     | Storage  |
+|  Input   |     | Service  |     |          |
++----+-----+     +----+-----+     +----+-----+
+     |               |               |
+     | "password"    |               |
+     |-------------->|               |
+     |               |               |
+     |               | Generate salt |
+     |               |---------------|
+     |               |               |
+     |               | stretch_key   |
+     |               | (10000x)      |
+     |               |---------------|
+     |               |               |
+     |               | v1$salt$      |
+     |               | iterations$   |
+     |               | hash          |
+     |               |-------------->|
+     |               |               |
+```
+
+### Token Generation
+
 ```v
-// Create container
-mut container := di.new_container()
-
-// Register services
-container.register_singleton_fn('logger', fn () voidptr {
-    return new_logger_service()
-})
-
-// Resolve services
-logger := container.resolve('logger') or { panic('No logger') }
-```
-
-**Frontend (Angular):**
-```typescript
-@Injectable({ providedIn: 'root' })
-export class StorageService {
-  // Automatically injected
-}
-
-// Usage via facade
-constructor(private services: AppServices) {}
-
-this.services.storage.set('key', 'value');
-```
-
-### Errors as Values
-
-**Backend:**
-```v
-pub fn get_user(id int) result.Result[User] {
-    if id <= 0 {
-        return result.err[User](error.validation_error('id', 'Invalid'))
-    }
-    return result.ok[User](user)
+pub fn generate_secure_token(prefix string) string {
+    // Generate 32 bytes of entropy
+    random_bytes := generate_entropy_bytes(32)
+    random_part := bytes_to_hex(random_bytes)
+    
+    // Add timestamp for uniqueness
+    timestamp := time.now().unix_nano()
+    
+    return '${prefix}_${random_part}_${timestamp}'
 }
 ```
 
-**Frontend:**
-```typescript
-async getUser(id: number): Promise<Result<User>> {
-    if (id <= 0) {
-        return err({ code: 'VALIDATION_ERROR', message: 'Invalid' });
-    }
-    return ok(user);
-}
-```
-
-### Event-Driven Architecture
-
-**Backend Event Bus:**
-```v
-mut event_bus := events.new_event_bus()
-event_bus.subscribe('app:log', fn (event &events.Event) {
-    println('Event: ${event.data}')
-})
-event_bus.publish('app:started', 'App started', 'main')
-```
-
-**Frontend Event Bus:**
-```typescript
-this.eventBus.subscribe('network:status_changed', (payload) => {
-    console.log('Network status:', payload);
-});
-this.eventBus.publish('window:opened', { id: '1', title: 'Window' });
-```
-
-## Security Considerations
-
-### Backend
-- Input validation on all API handlers
-- Error messages don't expose internal details
-- File access restricted to allowed paths
-
-### Frontend
-- Error boundaries prevent cascade failures
-- Sanitized error display
-- Secure storage practices
-
-## Performance Optimizations
-
-### Frontend
-- **Lazy Loading** - Components loaded on demand
-- **Signal-based Updates** - Fine-grained reactivity
-- **Caching** - HTTP responses cached with TTL
-- **Debouncing** - Search and input handling
-
-### Backend
-- **Singleton Services** - Shared instances
-- **Caching** - In-memory cache with TTL
-- **Efficient System Access** - Direct /proc and /sys access
-- **Minimal Allocations** - Stack-based where possible
-
-## File Structure
+### Rate Limiting
 
 ```
-vlang-webui-angular-rspack/
-├── src/
-│   ├── di.v                          # DI Container
-│   ├── result.v                      # Result type
-│   ├── error.v                       # Error definitions
-│   ├── events.v                      # Event bus
-│   ├── main.v                        # Entry point
-│   ├── services/
-│   │   ├── interfaces.v              # Interfaces
-│   │   ├── core_services.v           # Core services
-│   │   ├── additional_services.v     # Additional services
-│   │   └── registry.v                # Registry
-│   ├── system.v                      # System info
-│   ├── network.v                     # Network
-│   ├── process.v                     # Processes
-│   └── filesystem.v                  # Filesystem
-├── frontend/src/
-│   ├── core/                         # Services
-│   ├── viewmodels/                   # State management
-│   ├── models/                       # Data models
-│   ├── types/                        # TypeScript types
-│   └── views/                        # Components
-├── docs/                             # Documentation
-└── thirdparty/                       # Third-party libs
++----------+     +----------+     +----------+
+| Request  |     |   Rate   |     | Handler  |
+|          |     | Limiter  |     |          |
++----+-----+     +----+-----+     +----+-----+
+     |               |               |
+     |-------------->| check()       |
+     |               |               |
+     |               | - Per min     |
+     |               | - Per hour    |
+     |               | - Burst       |
+     |               |               |
+     |               | Execute or    |
+     |               | Reject        |
+     |               |-------------->|
+     |               |               |
 ```
 
-## Technology Stack
+### CSRF Protection
 
-| Layer | Technology | Purpose |
-|-------|------------|---------|
-| Backend Language | V | System programming |
-| Frontend Framework | Angular 21 | UI framework |
-| Build Tool | Rspack | Fast bundling |
-| Window Management | WebUI + WinBox.js | Native windows |
-| State Management | Signals | Reactive state |
-| DI Container | Custom (V) + Angular | Dependency injection |
-| Error Handling | Result types | Errors as values |
+1. Server generates unique token per session
+2. Token included in forms/requests
+3. Server validates token on state-changing operations
+4. Token is single-use (invalidated after use)
+
+---
+
+## Deployment Architecture
+
+### Development
+
+```
++-------------------+     +-------------------+
+|   V -live run     |     |   bun run dev     |
+|   (Backend)       |     |   (Frontend)      |
++-------------------+     +-------------------+
+         |                         |
+         +------------+------------+
+                      |
+              +-------v-------+
+              |   Browser     |
+              | localhost:8080|
+              +---------------+
+```
+
+### Production
+
+```
++-------------------------------------------+
+|           Production Server               |
++-------------------------------------------+
+|                                           |
+|  +------------------+                     |
+|  |  nginx/Apache    |                     |
+|  |  (Static files)  |                     |
+|  +--------+---------+                     |
+|           |                               |
+|  +--------v---------+                     |
+|  |  V Backend       |                     |
+|  |  (Compiled)      |                     |
+|  +--------+---------+                     |
+|           |                               |
+|  +--------v---------+                     |
+|  |  Data Files      |                     |
+|  |  (JSON/SQLite)   |                     |
+|  +------------------+                     |
+|                                           |
++-------------------------------------------+
+```
+
+---
+
+*Last Updated: 2026-03-29*

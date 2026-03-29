@@ -1,5 +1,5 @@
 // Simplified HTTP client service
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { StorageService } from './storage.service';
 import { DEFAULT_TIMEOUT_MS } from '../app/constants/app.constants';
 
@@ -19,13 +19,12 @@ export interface HttpResponse<T> {
 
 @Injectable({ providedIn: 'root' })
 export class HttpService {
+  private readonly storage = inject(StorageService);
   private readonly baseUrl = '';
   private readonly defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   };
-
-  constructor(private readonly storage: StorageService) {}
 
   setBaseUrl(url: string): void {
     Object.assign(this, { baseUrl: url });

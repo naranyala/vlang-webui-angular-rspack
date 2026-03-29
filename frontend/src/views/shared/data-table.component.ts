@@ -329,20 +329,20 @@ export interface DataTableConfig {
     }
   `]
 })
-export class DataTableComponent {
+export class DataTableComponent<T extends Record<string, unknown> = Record<string, unknown>> {
   private api = inject(ApiService);
   private logger = inject(LoggerService);
 
   @Input() config: DataTableConfig | null = null;
-  @Input() items: any[] = [];
-  @Output() itemsChange = new EventEmitter<any[]>();
+  @Input() items: T[] = [];
+  @Output() itemsChange = new EventEmitter<T[]>();
   @Output() statsChange = new EventEmitter<{ type: string; count: number }>();
 
-  filteredItems: any[] = [];
+  filteredItems: T[] = [];
   searchQuery = '';
   showModal = false;
-  editingItem: any = null;
-  formData: Record<string, any> = {};
+  editingItem: T | null = null;
+  formData: Record<string, unknown> = {};
   isLoading = false;
 
   ngOnInit(): void {
